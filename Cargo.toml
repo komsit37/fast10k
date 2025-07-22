@@ -1,0 +1,59 @@
+[package]
+name = "fast10k"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "Fast CLI tool for downloading, indexing, and searching SEC 10-K filings and financial documents"
+license = "MIT"
+repository = "https://github.com/yourusername/fast10k"
+
+[[bin]]
+name = "fast10k"
+path = "src/main.rs"
+
+[dependencies]
+# CLI framework
+clap = { version = "4.0", features = ["derive"] }
+
+# TUI framework
+ratatui = "0.26"
+crossterm = "0.27"
+
+# Async runtime and HTTP client
+tokio = { version = "1.0", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+
+# Serialization and date handling
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# XML/XBRL parsing
+quick-xml = { version = "0.31", features = ["serialize"] }
+
+# PDF parsing
+lopdf = "0.32"
+
+# Logging and error handling
+tracing = "0.1"
+tracing-subscriber = "0.3"
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
+futures = "0.3"
+walkdir = "2.0"
+
+# Optional search engine
+tantivy = { version = "0.22", optional = true }
+
+[features]
+default = []
+search = ["tantivy"]
+
+[dev-dependencies]
+tempfile = "3.0"
