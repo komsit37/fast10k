@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use chrono::NaiveDate;
-use crate::models::{FilingType, Source};
+use crate::models::{FilingType, Source, DocumentFormat};
 
 #[derive(Parser)]
 #[command(name = "fast10k")]
@@ -42,6 +42,10 @@ pub enum Commands {
         /// Maximum number of documents to download
         #[arg(short, long, default_value = "5")]
         limit: usize,
+        
+        /// Document format to download (txt, html, xbrl, ixbrl, complete)
+        #[arg(long, default_value = "txt")]
+        format: String,
     },
     
     /// Index downloaded documents into SQLite or Parquet
@@ -120,6 +124,17 @@ impl Commands {
             "transcript" => Ok(FilingType::Transcript),
             "press-release" | "press_release" => Ok(FilingType::PressRelease),
             other => Ok(FilingType::Other(other.to_string())),
+        }
+    }
+    
+    pub fn parse_document_format(format: &str) -> Result<DocumentFormat, anyhow::Error> {
+        match format.to_lowercase().as_str() {
+            "txt" | "text" => Ok(DocumentFormat::Txt),
+            "html" | "htm" => Ok(DocumentFormat::Html),
+            "xbrl" | "xml" => Ok(DocumentFormat::Xbrl),
+            "ixbrl" | "inline-xbrl" | "inlinexbrl" => Ok(DocumentFormat::Ixbrl),
+            "complete" | "all" => Ok(DocumentFormat::Complete),
+            other => Err(anyhow::anyhow!("Unsupported document format: {}. Supported formats: txt, html, xbrl, ixbrl, complete", other)),
         }
     }
 }

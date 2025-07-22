@@ -26,7 +26,8 @@ async fn main() -> Result<()> {
             from_date, 
             to_date, 
             output,
-            limit
+            limit,
+            format
         } => {
             info!("Starting download for ticker: {}", ticker);
             
@@ -34,6 +35,7 @@ async fn main() -> Result<()> {
             let filing_type = filing_type.as_ref()
                 .map(|ft| Commands::parse_filing_type(ft))
                 .transpose()?;
+            let document_format = Commands::parse_document_format(format)?;
                 
             let download_request = models::DownloadRequest {
                 source,
@@ -42,6 +44,7 @@ async fn main() -> Result<()> {
                 date_from: *from_date,
                 date_to: *to_date,
                 limit: *limit,
+                format: document_format,
             };
             
             match downloader::download_documents(&download_request, output).await {

@@ -57,6 +57,37 @@ impl Source {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DocumentFormat {
+    Txt,
+    Html,
+    Xbrl,
+    Ixbrl,
+    Complete,
+}
+
+impl DocumentFormat {
+    pub fn as_str(&self) -> &str {
+        match self {
+            DocumentFormat::Txt => "txt",
+            DocumentFormat::Html => "html",
+            DocumentFormat::Xbrl => "xbrl",
+            DocumentFormat::Ixbrl => "ixbrl",
+            DocumentFormat::Complete => "complete",
+        }
+    }
+    
+    pub fn file_extension(&self) -> &str {
+        match self {
+            DocumentFormat::Txt => "txt",
+            DocumentFormat::Html => "htm",
+            DocumentFormat::Xbrl => "xml",
+            DocumentFormat::Ixbrl => "htm",
+            DocumentFormat::Complete => "zip",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct SearchQuery {
     pub ticker: Option<String>,
@@ -76,4 +107,5 @@ pub struct DownloadRequest {
     pub date_from: Option<NaiveDate>,
     pub date_to: Option<NaiveDate>,
     pub limit: usize,
+    pub format: DocumentFormat,
 }

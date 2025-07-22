@@ -142,13 +142,14 @@ pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usi
             }
         }
         
-        let filename = format!("{}-{}-{}.txt", 
+        let filename = format!("{}-{}-{}.{}", 
             filing.form.replace("/", "-"), 
             filing.filing_date, 
-            filing.accession_number.replace("-", ""));
+            filing.accession_number.replace("-", ""),
+            request.format.file_extension());
         let file_path = company_dir.join(filename);
         
-        match download_filing(&client, &filing.accession_number, &file_path).await {
+        match download_filing(&client, &filing.accession_number, &file_path, &request.format).await {
             Ok(_) => {
                 info!("Downloaded filing: {}", file_path.display());
                 download_count += 1;
@@ -239,7 +240,7 @@ async fn get_company_filings(client: &Client, cik: &str) -> Result<Vec<FilingEnt
     Ok(filings)
 }
 
-async fn download_filing(client: &Client, accession_number: &str, output_path: &Path) -> Result<()> {
+async fn download_filing(client: &Client, accession_number: &str, output_path: &Path, format: &crate::models::DocumentFormat) -> Result<()> {
     // Format the accession number for the URL (remove dashes)
     let accession_clean = accession_number.replace("-", "");
     
@@ -260,12 +261,30 @@ async fn download_filing(client: &Client, accession_number: &str, output_path: &
         accession_clean
     );
     
-    // Try different document name patterns with retry logic
-    let document_urls = vec![
-        format!("{}/{}.txt", base_url, accession_number),
-        format!("{}/{}-index.html", base_url, accession_number),
-        format!("{}/filing-details.html", base_url),
-    ];
+    // Try different document name patterns with retry logic based on format
+    let document_urls = match format {
+        crate::models::DocumentFormat::Txt => vec![
+            format!("{}/{}.txt", base_url, accession_number),
+            format!("{}/{}-index.html", base_url, accession_number),
+        ],
+        crate::models::DocumentFormat::Html => vec![
+            format!("{}/{}.htm", base_url, accession_number),
+            format!("{}/{}-index.html", base_url, accession_number),
+            format!("{}/{}-index.htm", base_url, accession_number),
+        ],
+        crate::models::DocumentFormat::Xbrl => vec![
+            format!("{}/{}_doc.xml", base_url, accession_clean),
+            format!("{}/{}.xml", base_url, accession_clean),
+        ],
+        crate::models::DocumentFormat::Ixbrl => vec![
+            format!("{}/{}.htm", base_url, accession_number),
+            format!("{}/{}-index.html", base_url, accession_number),
+        ],
+        crate::models::DocumentFormat::Complete => vec![
+            format!("{}/complete-submission.zip", base_url),
+            format!("{}/{}-complete.zip", base_url, accession_number),
+        ],
+    };
     
     for url in document_urls {
         for attempt in 1..=3 {
