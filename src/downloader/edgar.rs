@@ -284,6 +284,10 @@ async fn download_filing(client: &Client, accession_number: &str, output_path: &
             format!("{}/complete-submission.zip", base_url),
             format!("{}/{}-complete.zip", base_url, accession_number),
         ],
+        crate::models::DocumentFormat::Other(_) => vec![
+            format!("{}/complete-submission.zip", base_url),
+            format!("{}/{}-complete.zip", base_url, accession_number),
+        ],
     };
     
     for url in document_urls {

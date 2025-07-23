@@ -1,7 +1,7 @@
 use anyhow::Result;
 use sqlx::{SqlitePool, Row};
 use std::path::Path;
-use crate::models::{Document, SearchQuery, FilingType, Source};
+use crate::models::{Document, SearchQuery, FilingType, Source, DocumentFormat};
 
 pub struct Storage {
     pool: SqlitePool,
@@ -29,7 +29,8 @@ impl Storage {
                 date TEXT NOT NULL,
                 content_path TEXT NOT NULL,
                 metadata TEXT NOT NULL,
-                content_preview TEXT
+                content_preview TEXT,
+                format TEXT
             );
             
             CREATE INDEX IF NOT EXISTS idx_ticker ON documents(ticker);
@@ -52,8 +53,8 @@ impl Storage {
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO documents 
-            (id, ticker, company_name, filing_type, source, date, content_path, metadata, content_preview)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, ticker, company_name, filing_type, source, date, content_path, metadata, content_preview, format)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#
         )
         .bind(&document.id)
@@ -65,6 +66,7 @@ impl Storage {
         .bind(document.content_path.to_string_lossy().to_string())
         .bind(&metadata_json)
         .bind(content_preview)
+        .bind(document.format.as_str())
         .execute(&self.pool)
         .await?;
         
@@ -138,6 +140,7 @@ impl Storage {
             let source_str: String = row.get("source");
             let date_str: String = row.get("date");
             let metadata_str: String = row.get("metadata");
+            let format_str: Option<String> = row.try_get("format").ok();
             
             let filing_type = match filing_type_str.as_str() {
                 "10-K" => FilingType::TenK,
@@ -158,6 +161,17 @@ impl Storage {
             let date = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")?;
             let metadata = serde_json::from_str(&metadata_str)?;
             
+            let format = match format_str.as_deref() {
+                Some("txt") => DocumentFormat::Txt,
+                Some("html") => DocumentFormat::Html,
+                Some("xbrl") => DocumentFormat::Xbrl,
+                Some("ixbrl") => DocumentFormat::Ixbrl,
+                Some("complete") => DocumentFormat::Complete,
+                Some(other) if other.contains(',') => DocumentFormat::Other(other.to_string()),
+                Some(other) => DocumentFormat::Other(other.to_string()),
+                _ => DocumentFormat::Complete, // Default fallback
+            };
+            
             documents.push(Document {
                 id: row.get("id"),
                 ticker: row.get("ticker"),
@@ -167,6 +181,7 @@ impl Storage {
                 date,
                 content_path: row.get::<String, _>("content_path").into(),
                 metadata,
+                format,
             });
         }
         
@@ -183,4 +198,50 @@ pub async fn search_documents(query: &SearchQuery, database_path: &str, limit: u
 pub async fn insert_document(document: &Document, database_path: &str) -> Result<()> {
     let storage = Storage::new(database_path).await?;
     storage.insert_document(document).await
+}
+
+pub async fn count_documents_by_source(source: &Source, database_path: &str) -> Result<i64> {
+    let storage = Storage::new(database_path).await?;
+    
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM documents WHERE source = ?")
+        .bind(source.as_str())
+        .fetch_one(&storage.pool)
+        .await?;
+    
+    Ok(count.0)
+}
+
+pub async fn get_date_range_for_source(source: &Source, database_path: &str) -> Result<(String, String)> {
+    let storage = Storage::new(database_path).await?;
+    
+    let row = sqlx::query("SELECT MIN(date) as min_date, MAX(date) as max_date FROM documents WHERE source = ?")
+        .bind(source.as_str())
+        .fetch_one(&storage.pool)
+        .await?;
+    
+    let min_date: String = row.get("min_date");
+    let max_date: String = row.get("max_date");
+    
+    Ok((min_date, max_date))
+}
+
+pub async fn get_top_companies_for_source(source: &Source, database_path: &str, limit: usize) -> Result<Vec<(String, i64)>> {
+    let storage = Storage::new(database_path).await?;
+    
+    let rows = sqlx::query(
+        "SELECT company_name, COUNT(*) as doc_count FROM documents WHERE source = ? GROUP BY company_name ORDER BY doc_count DESC LIMIT ?"
+    )
+        .bind(source.as_str())
+        .bind(limit as i64)
+        .fetch_all(&storage.pool)
+        .await?;
+    
+    let mut companies = Vec::new();
+    for row in rows {
+        let company_name: String = row.get("company_name");
+        let doc_count: i64 = row.get("doc_count");
+        companies.push((company_name, doc_count));
+    }
+    
+    Ok(companies)
 }

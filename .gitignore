@@ -66,3 +66,5 @@ desktop.ini
 .directory
 .Trash-*
 .nfs*
+
+.env

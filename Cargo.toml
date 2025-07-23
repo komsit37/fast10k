@@ -11,6 +11,10 @@ repository = "https://github.com/yourusername/fast10k"
 name = "fast10k"
 path = "src/main.rs"
 
+[[bin]]
+name = "edinet"
+path = "src/bin/edinet.rs"
+
 [dependencies]
 # CLI framework
 clap = { version = "4.0", features = ["derive"] }
@@ -39,7 +43,8 @@ lopdf = "0.32"
 
 # Logging and error handling
 tracing = "0.1"
-tracing-subscriber = "0.3"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 anyhow = "1.0"
 thiserror = "1.0"
 

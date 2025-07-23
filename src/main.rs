@@ -6,6 +6,7 @@ mod cli;
 mod models;
 mod storage;
 mod indexer;
+mod edinet_indexer;
 mod tui;
 mod downloader;
 
@@ -13,8 +14,30 @@ use cli::{Cli, Commands};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Set default log level to INFO if not specified
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "fast10k=info");
+    }
+    
+    // Initialize logging to both console and file
+    use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt, Layer};
+    
+    // Create a file appender for logging
+    let file_appender = tracing_appender::rolling::never(".", "fast10k.log");
+    
+    tracing_subscriber::registry()
+        .with(
+            fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(EnvFilter::from_default_env())
+        )
+        .with(
+            fmt::layer()
+                .with_writer(file_appender)
+                .with_ansi(false)
+                .with_filter(EnvFilter::from_default_env())
+        )
+        .init();
     
     let cli = Cli::parse();
     
@@ -112,6 +135,8 @@ async fn main() -> Result<()> {
                 Err(e) => error!("TUI failed: {}", e),
             }
         }
+        
+        
     }
     
     Ok(())

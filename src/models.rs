@@ -13,6 +13,7 @@ pub struct Document {
     pub date: NaiveDate,
     pub content_path: PathBuf,
     pub metadata: HashMap<String, String>,
+    pub format: DocumentFormat,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,6 +65,7 @@ pub enum DocumentFormat {
     Xbrl,
     Ixbrl,
     Complete,
+    Other(String),
 }
 
 impl DocumentFormat {
@@ -74,6 +76,7 @@ impl DocumentFormat {
             DocumentFormat::Xbrl => "xbrl",
             DocumentFormat::Ixbrl => "ixbrl",
             DocumentFormat::Complete => "complete",
+            DocumentFormat::Other(s) => s,
         }
     }
     
@@ -84,6 +87,7 @@ impl DocumentFormat {
             DocumentFormat::Xbrl => "xml",
             DocumentFormat::Ixbrl => "htm",
             DocumentFormat::Complete => "zip",
+            DocumentFormat::Other(_) => "zip", // Default to zip for mixed formats
         }
     }
 }

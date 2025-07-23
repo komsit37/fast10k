@@ -104,6 +104,8 @@ pub enum Commands {
         #[arg(short, long, default_value = "./fast10k.db")]
         database: String,
     },
+    
+    
 }
 
 impl Commands {

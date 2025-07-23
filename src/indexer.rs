@@ -81,6 +81,7 @@ async fn process_file(file_path: &Path) -> Result<Option<Document>> {
         date: path_components.date,
         content_path: file_path.to_path_buf(),
         metadata,
+        format: crate::models::DocumentFormat::Complete, // Default format for indexed files
     };
     
     Ok(Some(document))
