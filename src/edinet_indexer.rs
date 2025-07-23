@@ -3,6 +3,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 use std::collections::HashMap;
+use std::io::Write;
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use chrono::{NaiveDate, Utc, Duration as ChronoDuration, Datelike};
@@ -103,11 +104,15 @@ const DOCUMENTS_ENDPOINT: &str = "/api/v2/documents.json";
 
 /// Build comprehensive EDINET index using date range
 pub async fn build_edinet_index_by_date(database_path: &str, start_date: NaiveDate, end_date: NaiveDate) -> Result<usize> {
-    info!("Building EDINET index from {} to {}", start_date, end_date);
+    println!("🚀 Starting EDINET index build from {} to {}", start_date, end_date);
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
     
     // Check if API key is available
     let api_key = std::env::var("EDINET_API_KEY").map_err(|_| 
         anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET indexing."))?;
+    
+    println!("✅ EDINET API key found, proceeding with indexing");
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
     
     let client = Client::builder()
         .user_agent("fast10k/0.1.0")
@@ -126,6 +131,22 @@ pub async fn build_edinet_index_by_date(database_path: &str, start_date: NaiveDa
     
     // Calculate total days for progress tracking
     let total_days = (end_datetime - start_datetime).num_days() + 1;
+    let mut weekdays_total = 0;
+    
+    // Count weekdays for accurate progress tracking
+    let mut temp_date = start_datetime;
+    while temp_date <= end_datetime {
+        let weekday = temp_date.weekday();
+        if !matches!(weekday, chrono::Weekday::Sat | chrono::Weekday::Sun) {
+            weekdays_total += 1;
+        }
+        temp_date = temp_date + ChronoDuration::days(1);
+    }
+    
+    info!("Will process {} weekdays out of {} total days (skipping weekends)", weekdays_total, total_days);
+    
+    // Track timing for better estimates
+    let start_time = std::time::Instant::now();
     
     // Index documents day by day (but with sampling for efficiency)
     let mut current_date = start_datetime;
@@ -137,37 +158,48 @@ pub async fn build_edinet_index_by_date(database_path: &str, start_date: NaiveDa
         // Skip weekends for efficiency (less filings on weekends)
         let weekday = current_date.weekday();
         if matches!(weekday, chrono::Weekday::Sat | chrono::Weekday::Sun) {
+            debug!("Skipping weekend: {}", date_str);
             current_date = current_date + ChronoDuration::days(1);
             continue;
         }
         
-        info!("Processing EDINET documents for date: {} ({}/{})", 
-            date_str, processed_days + 1, total_days);
+        processed_days += 1;
+        let progress_pct = (processed_days as f64 / weekdays_total as f64 * 100.0) as u32;
         
         match index_documents_for_date(&client, &api_key, &date_str, database_path).await {
             Ok(count) => {
                 total_indexed += count;
-                info!("Indexed {} documents for {}", count, date_str);
+                if count > 0 {
+                    println!("🗓️  Processing date {} ({}/{} weekdays, {}% complete) - ✅ Indexed {} documents (total: {})", 
+                        date_str, processed_days, weekdays_total, progress_pct, count, total_indexed);
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                } else {
+                    println!("🗓️  Processing date {} ({}/{} weekdays, {}% complete) - 📭 No documents found", 
+                        date_str, processed_days, weekdays_total, progress_pct);
+                    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                }
             }
             Err(e) => {
-                warn!("Failed to index documents for {}: {}", date_str, e);
+                warn!("❌ Failed to index documents for {}: {}", date_str, e);
             }
         }
         
-        processed_days += 1;
         current_date = current_date + ChronoDuration::days(1);
         
         // Rate limiting - be respectful to EDINET API
         tokio::time::sleep(Duration::from_millis(300)).await;
         
-        // Progress reporting
-        if processed_days % 10 == 0 {
-            info!("Progress: {}/{} days processed, {} documents indexed", 
-                processed_days, total_days, total_indexed);
-        }
     }
     
-    info!("EDINET indexing complete. Total documents indexed: {}", total_indexed);
+    let total_elapsed = start_time.elapsed();
+    let total_minutes = total_elapsed.as_secs() / 60;
+    let total_seconds = total_elapsed.as_secs() % 60;
+    
+    info!("🎉 EDINET indexing complete!");
+    info!("📈 Total documents indexed: {}", total_indexed);
+    info!("⏱️  Total time: {} minutes {} seconds", total_minutes, total_seconds);
+    info!("📅 Processed {} weekdays from {} to {}", processed_days, start_date, end_date);
+    
     Ok(total_indexed)
 }
 

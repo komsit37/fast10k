@@ -6,6 +6,10 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 use crate::models::DownloadRequest;
 
+// EDINET API endpoints
+const EDINET_BASE_URL: &str = "https://api.edinet-fsa.go.jp";
+const DOCUMENTS_ENDPOINT: &str = "/api/v2/documents.json";
+
 pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usize> {
     info!("Starting EDINET download for ticker: {}", request.ticker);
     
@@ -30,7 +34,9 @@ pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usi
     
     // Step 3: Download each document
     for document in documents {
-        let file_name = format!("{}-{}.zip", document.doc_id, document.submit_date);
+        let file_name = format!("{}-{}.zip", 
+            document.doc_id.as_deref().unwrap_or("unknown"), 
+            document.submit_date.as_deref().unwrap_or("unknown"));
         let output_path = company_dir.join(file_name);
         
         match download_edinet_document(&client, &document, &output_path).await {
@@ -39,7 +45,7 @@ pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usi
                 info!("Downloaded: {}", output_path.display());
             }
             Err(e) => {
-                warn!("Failed to download document {}: {}", document.doc_id, e);
+                warn!("Failed to download document {}: {}", document.doc_id.as_deref().unwrap_or("unknown"), e);
             }
         }
         
@@ -52,8 +58,8 @@ pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usi
 }
 
 #[derive(Debug, Deserialize)]
-struct EdinetMetaDataResponse {
-    metadata: EdinetMetaData,
+struct EdinetIndexResponse {
+    metadata: Option<EdinetMetaData>,
     results: Vec<EdinetDocument>,
 }
 
@@ -81,7 +87,7 @@ pub struct EdinetDocument {
     #[serde(rename = "seqNumber")]
     pub seq_number: i32,
     #[serde(rename = "docID")]
-    pub doc_id: String,
+    pub doc_id: Option<String>,
     #[serde(rename = "edinetCode")]
     pub edinet_code: Option<String>,
     #[serde(rename = "secCode")]
@@ -89,7 +95,7 @@ pub struct EdinetDocument {
     #[serde(rename = "JCN")]
     pub jcn: Option<String>,
     #[serde(rename = "filerName")]
-    pub filer_name: String,
+    pub filer_name: Option<String>,
     #[serde(rename = "fundCode")]
     pub fund_code: Option<String>,
     #[serde(rename = "ordinanceCode")]
@@ -103,9 +109,9 @@ pub struct EdinetDocument {
     #[serde(rename = "periodEnd")]
     pub period_end: Option<String>,
     #[serde(rename = "submitDateTime")]
-    pub submit_date: String,
+    pub submit_date: Option<String>,
     #[serde(rename = "docDescription")]
-    pub doc_description: String,
+    pub doc_description: Option<String>,
     #[serde(rename = "issuerEdinetCode")]
     pub issuer_edinet_code: Option<String>,
     #[serde(rename = "subjectEdinetCode")]
@@ -139,9 +145,6 @@ pub struct EdinetDocument {
     pub legal_status: Option<String>,
 }
 
-// EDINET API endpoints
-const EDINET_BASE_URL: &str = "https://api.edinet-fsa.go.jp";
-const DOCUMENTS_ENDPOINT: &str = "/api/v2/documents.json";
 const DOCUMENT_DOWNLOAD_ENDPOINT: &str = "/api/v2/documents";
 
 #[derive(Debug, Deserialize)]
@@ -153,10 +156,8 @@ struct EdinetErrorResponse {
 
 async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> {
     // Check if API key is available
-    let api_key = std::env::var("EDINET_API_KEY").unwrap_or_else(|_| {
-        warn!("EDINET_API_KEY environment variable not set. EDINET API requires a subscription key.");
-        "".to_string()
-    });
+    let api_key = std::env::var("EDINET_API_KEY")
+        .map_err(|_| anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET search."))?;
     
     debug!("Searching for company with ticker: {}", ticker);
     
@@ -193,12 +194,8 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
         
         let mut request = client
             .get(&url)
-            .query(&[("date", &date_str), ("type", &"2".to_string())]); // type=2 for corporate reports
-        
-        // Add API key if available
-        if !api_key.is_empty() {
-            request = request.header("Ocp-Apim-Subscription-Key", &api_key);
-        }
+            .query(&[("date", &date_str), ("type", &"2".to_string())]) // type=2 for corporate reports
+            .header("Ocp-Apim-Subscription-Key", &api_key);
         
         let response = request.send().await?;
         let status = response.status();
@@ -208,7 +205,7 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
             debug!("EDINET API response length: {} bytes for date {}", response_text.len(), date_str);
             
             // Try to parse as JSON
-            if let Ok(metadata_response) = serde_json::from_str::<EdinetMetaDataResponse>(&response_text) {
+            if let Ok(metadata_response) = serde_json::from_str::<EdinetIndexResponse>(&response_text) {
                 if metadata_response.results.len() > 0 {
                     info!("Searching {} documents for ticker {} on date {}", metadata_response.results.len(), ticker, date_str);
                     
@@ -220,7 +217,7 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
                             if clean_sec_code == ticker {
                                 if let Some(edinet_code) = &doc.edinet_code {
                                     info!("Found company {} with EDINET code {} for ticker {} on date {}", 
-                                        doc.filer_name, edinet_code, ticker, date_str);
+                                        doc.filer_name.as_deref().unwrap_or("Unknown"), edinet_code, ticker, date_str);
                                     return Ok(edinet_code.clone());
                                 }
                             }
@@ -253,7 +250,8 @@ async fn get_edinet_documents(
     let mut all_documents = Vec::new();
     
     // Check if API key is available
-    let api_key = std::env::var("EDINET_API_KEY").unwrap_or_else(|_| "".to_string());
+    let api_key = std::env::var("EDINET_API_KEY")
+        .map_err(|_| anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET download."))?;
     
     // Get documents for the specified date range  
     // For Toyota, we need to search much further back since they don't file daily
@@ -272,7 +270,7 @@ async fn get_edinet_documents(
     
     let mut current_date = start_date;
     
-    while current_date <= end_date {
+    'outer: while current_date <= end_date {
         let date_str = current_date.format("%Y-%m-%d").to_string();
         
         let url = format!(
@@ -285,12 +283,8 @@ async fn get_edinet_documents(
         
         let mut request_builder = client
             .get(&url)
-            .query(&[("date", &date_str), ("type", &"2".to_string())]);
-        
-        // Add API key if available
-        if !api_key.is_empty() {
-            request_builder = request_builder.header("Ocp-Apim-Subscription-Key", &api_key);
-        }
+            .query(&[("date", &date_str), ("type", &"2".to_string())])
+            .header("Ocp-Apim-Subscription-Key", &api_key);
         
         let response = request_builder.send().await?;
         let status = response.status();
@@ -298,11 +292,22 @@ async fn get_edinet_documents(
         let response_text = response.text().await?;
             
         if status.is_success() {
-            let metadata_response: EdinetMetaDataResponse = serde_json::from_str(&response_text)
-                .map_err(|e| anyhow!("Failed to parse EDINET response for date {}: {}", date_str, e))?;
+            debug!("Raw EDINET API response: {}", &response_text[..std::cmp::min(500, response_text.len())]);
+            
+            // Use the same structure as the indexer
+            let edinet_response: EdinetIndexResponse = serde_json::from_str(&response_text)
+                .map_err(|e| {
+                    warn!("Failed to parse EDINET response as structured format, response: {}", &response_text[..std::cmp::min(200, response_text.len())]);
+                    anyhow!("Failed to parse EDINET response for date {}: {}", date_str, e)
+                })?;
             
             // Filter documents for our specific company
-            for doc in metadata_response.results {
+            for doc in edinet_response.results {
+                // Skip documents without required fields
+                if doc.doc_id.is_none() || doc.edinet_code.is_none() {
+                    continue;
+                }
+                
                 if let Some(doc_edinet_code) = &doc.edinet_code {
                     if doc_edinet_code == edinet_code {
                         // Filter by document type if specified
@@ -359,7 +364,7 @@ async fn download_edinet_document(
         "{}{}/{}",
         EDINET_BASE_URL,
         DOCUMENT_DOWNLOAD_ENDPOINT,
-        document.doc_id
+        document.doc_id.as_deref().unwrap_or("unknown")
     );
     
     debug!("Downloading document from: {}", url);
@@ -381,14 +386,14 @@ async fn download_edinet_document(
         if let Ok(error_response) = serde_json::from_str::<EdinetErrorResponse>(&response_text) {
             return Err(anyhow!(
                 "Failed to download document {} ({}): {}",
-                document.doc_id,
+                document.doc_id.as_deref().unwrap_or("unknown"),
                 error_response.status_code,
                 error_response.message
             ));
         } else {
             return Err(anyhow!(
                 "Failed to download document {}: {} - {}",
-                document.doc_id,
+                document.doc_id.as_deref().unwrap_or("unknown"),
                 status,
                 response_text
             ));
@@ -458,11 +463,11 @@ mod tests {
             ]
         }"#;
 
-        let parsed: EdinetMetaDataResponse = serde_json::from_str(sample_response).unwrap();
+        let parsed: EdinetIndexResponse = serde_json::from_str(sample_response).unwrap();
         assert_eq!(parsed.results.len(), 1);
-        assert_eq!(parsed.results[0].doc_id, "S100TEST");
+        assert_eq!(parsed.results[0].doc_id.as_deref().unwrap(), "S100TEST");
         assert_eq!(parsed.results[0].edinet_code.as_ref().unwrap(), "E12345");
-        assert_eq!(parsed.results[0].filer_name, "Test Company Ltd.");
+        assert_eq!(parsed.results[0].filer_name.as_deref().unwrap(), "Test Company Ltd.");
     }
 
     #[tokio::test]
