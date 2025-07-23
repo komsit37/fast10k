@@ -105,7 +105,6 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Search { sym } => {
-            info!("Searching for symbol: {}", sym);
             let search_query = models::SearchQuery {
                 ticker: Some(sym.clone()),
                 company_name: None,
@@ -118,15 +117,14 @@ async fn main() -> Result<()> {
             
             match storage::search_documents(&search_query, db_path, 10).await {
                 Ok(documents) => {
-                    println!("Found {} documents:", documents.len());
+                    println!("date\tsym\tname\tdocType\tformats");
                     for doc in documents {
-                        println!("{} - {} ({}) - {} - {} - {}", 
+                        println!("{}\t{}\t{}\t{}\t{}", 
+                            doc.date,
                             doc.ticker, 
-                            doc.company_name, 
+                            doc.company_name,
                             doc.filing_type.as_str(),
-                            doc.format.as_str(),
-                            doc.source.as_str(),
-                            doc.date
+                            doc.format.as_str()
                         );
                     }
                 }
