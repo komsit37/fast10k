@@ -161,19 +161,10 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
     
     debug!("Searching for company with ticker: {}", ticker);
     
-    // First try to use known EDINET codes for major companies
-    let known_edinet_code = match ticker {
-        "7203" => Some("E02323"), // Toyota Motor Corporation
-        "9984" => Some("E04425"), // SoftBank Group Corp
-        "6758" => Some("E01985"), // Sony Group Corporation  
-        "9983" => Some("E04264"), // Fast Retailing Co., Ltd. (Uniqlo)
-        "7974" => Some("E00381"), // Nintendo Co., Ltd.
-        _ => None,
-    };
-    
-    if let Some(edinet_code) = known_edinet_code {
-        info!("Using known EDINET code {} for ticker {}", edinet_code, ticker);
-        return Ok(edinet_code.to_string());
+    // Try to find EDINET code from static database
+    if let Ok(Some(edinet_code)) = crate::storage::get_edinet_code_by_securities_code("./fast10k.db", ticker).await {
+        info!("Found EDINET code {} for ticker {} in static database", edinet_code, ticker);
+        return Ok(edinet_code);
     }
     
     let url = format!(

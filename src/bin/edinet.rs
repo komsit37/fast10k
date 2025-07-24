@@ -38,6 +38,21 @@ pub enum Commands {
         #[arg(long, default_value = "5")]
         limit: usize,
     },
+    /// Load static EDINET data from CSV
+    LoadStatic {
+        /// Path to EdinetcodeDlInfo.csv file
+        #[arg(long, default_value = "static/EdinetcodeDlInfo.csv")]
+        csv_path: String,
+    },
+    /// Search static EDINET data
+    SearchStatic {
+        /// Search query (company name, symbol, or EDINET code)
+        query: String,
+        
+        /// Maximum number of results
+        #[arg(long, default_value = "20")]
+        limit: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -146,6 +161,25 @@ async fn main() -> Result<()> {
             match downloader::download_documents(&download_request, "./downloads").await {
                 Ok(count) => info!("Successfully downloaded {} documents", count),
                 Err(e) => error!("Download failed: {}", e),
+            }
+        }
+        Commands::LoadStatic { csv_path } => {
+            info!("Loading EDINET static data from: {}", csv_path);
+            match storage::load_edinet_static_data(db_path, csv_path).await {
+                Ok(count) => info!("Successfully loaded {} EDINET static records", count),
+                Err(e) => error!("Failed to load static data: {}", e),
+            }
+        }
+        Commands::SearchStatic { query, limit } => {
+            match storage::search_edinet_static(db_path, query, *limit).await {
+                Ok(results) => {
+                    println!("edinet_code\tsecurities_code\tsubmitter_name\tsubmitter_name_en\tindustry\tclosing_date\taddress");
+                    for (edinet_code, submitter_name, submitter_name_en, securities_code, industry, closing_date, address) in results {
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}", 
+                            edinet_code, securities_code, submitter_name, submitter_name_en, industry, closing_date, address);
+                    }
+                }
+                Err(e) => error!("Search failed: {}", e),
             }
         }
     }

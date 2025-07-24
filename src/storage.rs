@@ -38,6 +38,25 @@ impl Storage {
             CREATE INDEX IF NOT EXISTS idx_filing_type ON documents(filing_type);
             CREATE INDEX IF NOT EXISTS idx_source ON documents(source);
             CREATE INDEX IF NOT EXISTS idx_company_name ON documents(company_name);
+            
+            CREATE TABLE IF NOT EXISTS edinet_static (
+                edinet_code TEXT PRIMARY KEY,
+                submitter_type TEXT,
+                listed_status TEXT,
+                consolidated_status TEXT,
+                capital_stock TEXT,
+                account_closing_date TEXT,
+                submitter_name TEXT,
+                submitter_name_en TEXT,
+                submitter_name_phonetic TEXT,
+                province TEXT,
+                industry TEXT,
+                securities_code TEXT,
+                corporate_number TEXT
+            );
+            
+            CREATE INDEX IF NOT EXISTS idx_securities_code ON edinet_static(securities_code);
+            CREATE INDEX IF NOT EXISTS idx_submitter_name ON edinet_static(submitter_name);
             "#
         )
         .execute(&pool)
@@ -223,6 +242,140 @@ pub async fn get_date_range_for_source(source: &Source, database_path: &str) -> 
     let max_date: String = row.get("max_date");
     
     Ok((min_date, max_date))
+}
+
+pub async fn load_edinet_static_data(database_path: &str, csv_path: &str) -> Result<usize> {
+    let storage = Storage::new(database_path).await?;
+    
+    // Clear existing data
+    sqlx::query("DELETE FROM edinet_static").execute(&storage.pool).await?;
+    
+    let mut reader = csv::ReaderBuilder::new()
+        .has_headers(false)
+        .flexible(true)
+        .from_path(csv_path)?;
+    let mut count = 0;
+    
+    // Skip the first two rows (metadata and header rows)
+    let mut records = reader.records();
+    if let Some(_) = records.next() {
+        // Skip metadata row
+    }
+    if let Some(_) = records.next() {
+        // Skip header row
+    }
+    
+    for result in records {
+        let record = result?;
+        
+        if record.len() >= 13 {
+            let securities_code = record.get(11).unwrap_or("").trim_matches('"');
+            // Only include records with securities codes (listed companies)
+            if !securities_code.is_empty() {
+                sqlx::query(
+                    r#"INSERT OR REPLACE INTO edinet_static 
+                       (edinet_code, submitter_type, listed_status, consolidated_status, 
+                        capital_stock, account_closing_date, submitter_name, submitter_name_en,
+                        submitter_name_phonetic, province, industry, securities_code, corporate_number)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"#
+                )
+                .bind(record.get(0).unwrap_or("").trim_matches('"'))
+                .bind(record.get(1).unwrap_or("").trim_matches('"'))
+                .bind(record.get(2).unwrap_or("").trim_matches('"'))
+                .bind(record.get(3).unwrap_or("").trim_matches('"'))
+                .bind(record.get(4).unwrap_or("").trim_matches('"'))
+                .bind(record.get(5).unwrap_or("").trim_matches('"'))
+                .bind(record.get(6).unwrap_or("").trim_matches('"'))
+                .bind(record.get(7).unwrap_or("").trim_matches('"'))
+                .bind(record.get(8).unwrap_or("").trim_matches('"'))
+                .bind(record.get(9).unwrap_or("").trim_matches('"'))
+                .bind(record.get(10).unwrap_or("").trim_matches('"'))
+                .bind(securities_code)
+                .bind(record.get(12).unwrap_or("").trim_matches('"'))
+                .execute(&storage.pool)
+                .await?;
+                
+                count += 1;
+            }
+        }
+    }
+    
+    Ok(count)
+}
+
+pub async fn search_edinet_static(database_path: &str, query: &str, limit: usize) -> Result<Vec<(String, String, String, String, String, String, String)>> {
+    let storage = Storage::new(database_path).await?;
+    
+    let search_pattern = format!("%{}%", query);
+    let rows = sqlx::query(
+        r#"SELECT edinet_code, submitter_name, submitter_name_en, securities_code, 
+                  industry, account_closing_date, province
+           FROM edinet_static 
+           WHERE submitter_name LIKE ? OR submitter_name_en LIKE ? OR securities_code LIKE ?
+           ORDER BY securities_code
+           LIMIT ?"#
+    )
+    .bind(&search_pattern)
+    .bind(&search_pattern)
+    .bind(&search_pattern)
+    .bind(limit as i64)
+    .fetch_all(&storage.pool)
+    .await?;
+    
+    let mut results = Vec::new();
+    for row in rows {
+        results.push((
+            row.get::<String, _>("edinet_code"),
+            row.get::<String, _>("submitter_name"),
+            row.get::<String, _>("submitter_name_en"),
+            row.get::<String, _>("securities_code"),
+            row.get::<String, _>("industry"),
+            row.get::<String, _>("account_closing_date"),
+            row.get::<String, _>("province"),
+        ));
+    }
+    
+    Ok(results)
+}
+
+pub async fn get_edinet_code_by_securities_code(database_path: &str, securities_code: &str) -> Result<Option<String>> {
+    let storage = Storage::new(database_path).await?;
+    
+    // First try exact match
+    let row = sqlx::query("SELECT edinet_code FROM edinet_static WHERE securities_code = ?")
+        .bind(securities_code)
+        .fetch_optional(&storage.pool)
+        .await?;
+    
+    if let Some(row) = row {
+        return Ok(Some(row.get::<String, _>("edinet_code")));
+    }
+    
+    // If no exact match, try with trailing zero (e.g., 7670 -> 76700)
+    let securities_code_with_zero = format!("{}0", securities_code);
+    let row = sqlx::query("SELECT edinet_code FROM edinet_static WHERE securities_code = ?")
+        .bind(&securities_code_with_zero)
+        .fetch_optional(&storage.pool)
+        .await?;
+    
+    if let Some(row) = row {
+        return Ok(Some(row.get::<String, _>("edinet_code")));
+    }
+    
+    // If still no match, try removing trailing zero (e.g., 76700 -> 7670)
+    if securities_code.len() > 4 && securities_code.ends_with('0') {
+        let securities_code_without_zero = &securities_code[..securities_code.len()-1];
+        let row = sqlx::query("SELECT edinet_code FROM edinet_static WHERE securities_code = ?")
+            .bind(securities_code_without_zero)
+            .fetch_optional(&storage.pool)
+            .await?;
+        
+        if let Some(row) = row {
+            return Ok(Some(row.get::<String, _>("edinet_code")));
+        }
+    }
+    
+    Ok(None)
 }
 
 pub async fn get_top_companies_for_source(source: &Source, database_path: &str, limit: usize) -> Result<Vec<(String, i64)>> {
