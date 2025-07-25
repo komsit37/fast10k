@@ -1,10 +1,10 @@
+use crate::models::DownloadRequest;
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::Deserialize;
 use std::path::Path;
 use std::time::Duration;
 use tracing::{debug, info, warn};
-use crate::models::DownloadRequest;
 
 // EDINET API endpoints
 const EDINET_BASE_URL: &str = "https://api.edinet-fsa.go.jp";
@@ -12,47 +12,69 @@ const DOCUMENTS_ENDPOINT: &str = "/api/v2/documents.json";
 
 pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usize> {
     info!("Starting EDINET download for ticker: {}", request.ticker);
-    
+
     let client = Client::builder()
         .user_agent("fast10k/0.1.0")
         .timeout(Duration::from_secs(30))
         .build()?;
-    
+
     // Create output directory structure
     let company_dir = Path::new(output_dir).join("edinet").join(&request.ticker);
     std::fs::create_dir_all(&company_dir)?;
-    
+
     // Step 1: Search for company by ticker to get EDINET code
     let edinet_code = search_edinet_company(&client, &request.ticker).await?;
-    info!("Found EDINET code: {} for ticker: {}", edinet_code, request.ticker);
-    
-    // Step 2: Get list of available documents
-    let documents = get_edinet_documents(&client, &edinet_code, request).await?;
+    info!(
+        "Found EDINET code: {} for ticker: {}",
+        edinet_code, request.ticker
+    );
+
+    // Step 2: Get list of available documents from local database
+    let documents = get_edinet_documents_from_db(&client, &edinet_code, request).await?;
     info!("Found {} documents for company", documents.len());
-    
+
     let mut downloaded_count = 0;
-    
+
     // Step 3: Download each document
-    for document in documents {
-        let file_name = format!("{}-{}.zip", 
-            document.doc_id.as_deref().unwrap_or("unknown"), 
-            document.submit_date.as_deref().unwrap_or("unknown"));
+    for (index, document) in documents.iter().enumerate() {
+        let file_name = format!(
+            "{}-{}.zip",
+            document.doc_id.as_deref().unwrap_or("unknown"),
+            document.submit_date.as_deref().unwrap_or("unknown")
+        );
         let output_path = company_dir.join(file_name);
-        
+
+        // Log document details before downloading
+        info!(
+            "Downloading document {}/{}: {} - {} ({})",
+            index + 1,
+            documents.len(),
+            document.doc_id.as_deref().unwrap_or("unknown"),
+            document
+                .doc_description
+                .as_deref()
+                .unwrap_or("Unknown document type"),
+            document.submit_date.as_deref().unwrap_or("unknown date")
+        );
+
         match download_edinet_document(&client, &document, &output_path).await {
             Ok(()) => {
                 downloaded_count += 1;
-                info!("Downloaded: {}", output_path.display());
+                info!("✓ Successfully downloaded: {}", output_path.display());
             }
             Err(e) => {
-                warn!("Failed to download document {}: {}", document.doc_id.as_deref().unwrap_or("unknown"), e);
+                warn!(
+                    "✗ Failed to download document {}: {}",
+                    document.doc_id.as_deref().unwrap_or("unknown"),
+                    e
+                );
             }
         }
-        
+
         // Rate limiting - EDINET API has usage limits
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    
+
     info!("Downloaded {} EDINET documents", downloaded_count);
     Ok(downloaded_count)
 }
@@ -156,50 +178,63 @@ struct EdinetErrorResponse {
 
 async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> {
     // Check if API key is available
-    let api_key = std::env::var("EDINET_API_KEY")
-        .map_err(|_| anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET search."))?;
-    
+    let api_key = std::env::var("EDINET_API_KEY").map_err(|_| {
+        anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET search.")
+    })?;
+
     debug!("Searching for company with ticker: {}", ticker);
-    
+
     // Try to find EDINET code from static database
-    if let Ok(Some(edinet_code)) = crate::storage::get_edinet_code_by_securities_code("./fast10k.db", ticker).await {
-        info!("Found EDINET code {} for ticker {} in static database", edinet_code, ticker);
+    if let Ok(Some(edinet_code)) =
+        crate::storage::get_edinet_code_by_securities_code("./fast10k.db", ticker).await
+    {
+        info!(
+            "Found EDINET code {} for ticker {} in static database",
+            edinet_code, ticker
+        );
         return Ok(edinet_code);
     }
-    
-    let url = format!(
-        "{}{}",
-        EDINET_BASE_URL,
-        DOCUMENTS_ENDPOINT
-    );
-    
+
+    let url = format!("{}{}", EDINET_BASE_URL, DOCUMENTS_ENDPOINT);
+
     // Search recent days to find the company dynamically
     let end_date = chrono::Utc::now();
     let start_date = end_date - chrono::Duration::days(7);
-    
+
     let mut current_date = start_date;
-    
+
     while current_date <= end_date {
         let date_str = current_date.format("%Y-%m-%d").to_string();
         debug!("Searching date: {}", date_str);
-        
+
         let mut request = client
             .get(&url)
             .query(&[("date", &date_str), ("type", &"2".to_string())]) // type=2 for corporate reports
             .header("Ocp-Apim-Subscription-Key", &api_key);
-        
+
         let response = request.send().await?;
         let status = response.status();
-            
+
         if status.is_success() {
             let response_text = response.text().await?;
-            debug!("EDINET API response length: {} bytes for date {}", response_text.len(), date_str);
-            
+            debug!(
+                "EDINET API response length: {} bytes for date {}",
+                response_text.len(),
+                date_str
+            );
+
             // Try to parse as JSON
-            if let Ok(metadata_response) = serde_json::from_str::<EdinetIndexResponse>(&response_text) {
+            if let Ok(metadata_response) =
+                serde_json::from_str::<EdinetIndexResponse>(&response_text)
+            {
                 if metadata_response.results.len() > 0 {
-                    info!("Searching {} documents for ticker {} on date {}", metadata_response.results.len(), ticker, date_str);
-                    
+                    info!(
+                        "Searching {} documents for ticker {} on date {}",
+                        metadata_response.results.len(),
+                        ticker,
+                        date_str
+                    );
+
                     // Look for the company by ticker in sec_code or by searching filer_name
                     for doc in &metadata_response.results {
                         if let Some(sec_code) = &doc.sec_code {
@@ -214,7 +249,7 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
                             }
                         }
                     }
-                    
+
                     // If we found documents but no match, break early to avoid too much searching
                     // This prevents endless searching when company simply doesn't file often
                     break;
@@ -223,124 +258,88 @@ async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> 
         } else {
             debug!("Failed to get data for date {}: {}", date_str, status);
         }
-        
+
         current_date = current_date + chrono::Duration::days(1);
-        
+
         // Rate limiting
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    
+
     Err(anyhow!("Company with ticker {} not found in EDINET. You may need to use a different ticker or the company may not be actively filing.", ticker))
 }
 
-async fn get_edinet_documents(
-    client: &Client,
-    edinet_code: &str,
+async fn get_edinet_documents_from_db(
+    _client: &Client,
+    _edinet_code: &str,
     request: &DownloadRequest,
 ) -> Result<Vec<EdinetDocument>> {
-    let mut all_documents = Vec::new();
-    
-    // Check if API key is available
-    let api_key = std::env::var("EDINET_API_KEY")
-        .map_err(|_| anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET download."))?;
-    
-    // Get documents for the specified date range  
-    // For Toyota, we need to search much further back since they don't file daily
-    let default_start = if edinet_code == "E02323" { // Toyota
-        chrono::Utc::now() - chrono::Duration::days(365) // Search past year for Toyota
-    } else {
-        chrono::Utc::now() - chrono::Duration::days(90)
+    // Query local database instead of scanning API
+    let search_query = crate::models::SearchQuery {
+        ticker: Some(request.ticker.clone()),
+        company_name: None,
+        filing_type: request.filing_type.clone(),
+        source: Some(crate::models::Source::Edinet),
+        date_from: request.date_from,
+        date_to: request.date_to,
+        text_query: None,
     };
-    
-    let start_date = request.date_from
-        .map(|d| d.and_hms_opt(0, 0, 0).unwrap().and_utc())
-        .unwrap_or(default_start);
-    let end_date = request.date_to
-        .map(|d| d.and_hms_opt(23, 59, 59).unwrap().and_utc())
-        .unwrap_or_else(|| chrono::Utc::now());
-    
-    let mut current_date = start_date;
-    
-    'outer: while current_date <= end_date {
-        let date_str = current_date.format("%Y-%m-%d").to_string();
-        
-        let url = format!(
-            "{}{}",
-            EDINET_BASE_URL,
-            DOCUMENTS_ENDPOINT
-        );
-        
-        debug!("Fetching documents for date: {}", date_str);
-        
-        let mut request_builder = client
-            .get(&url)
-            .query(&[("date", &date_str), ("type", &"2".to_string())])
-            .header("Ocp-Apim-Subscription-Key", &api_key);
-        
-        let response = request_builder.send().await?;
-        let status = response.status();
-        
-        let response_text = response.text().await?;
-            
-        if status.is_success() {
-            debug!("Raw EDINET API response: {}", &response_text[..std::cmp::min(500, response_text.len())]);
-            
-            // Use the same structure as the indexer
-            let edinet_response: EdinetIndexResponse = serde_json::from_str(&response_text)
-                .map_err(|e| {
-                    warn!("Failed to parse EDINET response as structured format, response: {}", &response_text[..std::cmp::min(200, response_text.len())]);
-                    anyhow!("Failed to parse EDINET response for date {}: {}", date_str, e)
-                })?;
-            
-            // Filter documents for our specific company
-            for doc in edinet_response.results {
-                // Skip documents without required fields
-                if doc.doc_id.is_none() || doc.edinet_code.is_none() {
-                    continue;
-                }
-                
-                if let Some(doc_edinet_code) = &doc.edinet_code {
-                    if doc_edinet_code == edinet_code {
-                        // Filter by document type if specified
-                        let should_include = match &request.filing_type {
-                            Some(filing_type) => {
-                                // Map filing types to EDINET form codes
-                                match filing_type.as_str() {
-                                    "10-K" | "annual" => doc.form_code.as_ref().map_or(false, |fc| fc.starts_with("030")), // Annual securities report
-                                    "10-Q" | "quarterly" => doc.form_code.as_ref().map_or(false, |fc| fc.starts_with("043")), // Quarterly securities report
-                                    _ => true, // Include all if unknown type
-                                }
-                            }
-                            None => true,
-                        };
-                        
-                        if should_include {
-                            all_documents.push(doc);
-                        }
-                    }
-                }
-            }
-        } else {
-            // Handle error response
-            if let Ok(error_response) = serde_json::from_str::<EdinetErrorResponse>(&response_text) {
-                warn!("EDINET API error for date {}: {} ({})", date_str, error_response.message, error_response.status_code);
-            } else {
-                warn!("EDINET API request failed for date {}: {}", date_str, status);
-            }
-        }
-        
-        current_date = current_date + chrono::Duration::days(1);
-        
-        // Rate limiting
-        tokio::time::sleep(Duration::from_millis(100)).await;
+
+    info!("Querying documents database for documents...");
+    let documents =
+        crate::storage::search_documents(&search_query, "./fast10k.db", request.limit).await?;
+    info!("Found {} documents in documents database", documents.len());
+
+    // Convert Document to EdinetDocument for downloading
+    let mut edinet_documents = Vec::new();
+    for doc in documents {
+        // Extract document ID from metadata if available, otherwise use the document ID
+        let doc_id = doc
+            .metadata
+            .get("doc_id")
+            .or_else(|| doc.metadata.get("document_id"))
+            .unwrap_or(&doc.id)
+            .clone();
+
+        let edinet_doc = EdinetDocument {
+            seq_number: 0, // Not used for download
+            doc_id: Some(doc_id),
+            edinet_code: doc.metadata.get("edinet_code").cloned(),
+            sec_code: Some(doc.ticker.clone()),
+            jcn: doc.metadata.get("jcn").cloned(),
+            filer_name: Some(doc.company_name.clone()),
+            fund_code: None,
+            ordinance_code: doc.metadata.get("ordinance_code").cloned(),
+            form_code: doc.metadata.get("form_code").cloned(),
+            doc_type_code: doc.metadata.get("doc_type_code").cloned(),
+            period_start: doc.metadata.get("period_start").cloned(),
+            period_end: doc.metadata.get("period_end").cloned(),
+            submit_date: Some(doc.date.format("%Y-%m-%d").to_string()),
+            doc_description: doc
+                .metadata
+                .get("doc_description")
+                .or_else(|| doc.metadata.get("description"))
+                .cloned(),
+            issuer_edinet_code: doc.metadata.get("issuer_edinet_code").cloned(),
+            subject_edinet_code: doc.metadata.get("subject_edinet_code").cloned(),
+            subsidiary_edinet_code: doc.metadata.get("subsidiary_edinet_code").cloned(),
+            current_report_reason: doc.metadata.get("current_report_reason").cloned(),
+            parent_doc_id: doc.metadata.get("parent_doc_id").cloned(),
+            ope_date_time: doc.metadata.get("ope_date_time").cloned(),
+            withdrawal_status: doc.metadata.get("withdrawal_status").cloned(),
+            doc_info_edit_status: doc.metadata.get("doc_info_edit_status").cloned(),
+            disclosure_request_status: doc.metadata.get("disclosure_request_status").cloned(),
+            xbrl_flag: doc.metadata.get("xbrl_flag").cloned(),
+            pdf_flag: doc.metadata.get("pdf_flag").cloned(),
+            attach_doc_flag: doc.metadata.get("attach_doc_flag").cloned(),
+            english_flag: doc.metadata.get("english_flag").cloned(),
+            csv_flag: doc.metadata.get("csv_flag").cloned(),
+            legal_status: doc.metadata.get("legal_status").cloned(),
+        };
+
+        edinet_documents.push(edinet_doc);
     }
-    
-    // Limit results if specified
-    if request.limit > 0 {
-        all_documents.truncate(request.limit);
-    }
-    
-    Ok(all_documents)
+
+    Ok(edinet_documents)
 }
 
 async fn download_edinet_document(
@@ -350,28 +349,26 @@ async fn download_edinet_document(
 ) -> Result<()> {
     // Check if API key is available
     let api_key = std::env::var("EDINET_API_KEY").unwrap_or_else(|_| "".to_string());
-    
+
     let url = format!(
         "{}{}/{}",
         EDINET_BASE_URL,
         DOCUMENT_DOWNLOAD_ENDPOINT,
         document.doc_id.as_deref().unwrap_or("unknown")
     );
-    
+
     debug!("Downloading document from: {}", url);
-    
-    let mut request_builder = client
-        .get(&url)
-        .query(&[("type", &"1".to_string())]); // type=1 for ZIP format
-    
+
+    let mut request_builder = client.get(&url).query(&[("type", &"1".to_string())]); // type=1 for ZIP format
+
     // Add API key if available
     if !api_key.is_empty() {
         request_builder = request_builder.header("Ocp-Apim-Subscription-Key", &api_key);
     }
-    
+
     let response = request_builder.send().await?;
     let status = response.status();
-        
+
     if !status.is_success() {
         let response_text = response.text().await?;
         if let Ok(error_response) = serde_json::from_str::<EdinetErrorResponse>(&response_text) {
@@ -390,16 +387,16 @@ async fn download_edinet_document(
             ));
         }
     }
-    
+
     let content = response.bytes().await?;
-    
+
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    
+
     std::fs::write(output_path, content)?;
-    
+
     Ok(())
 }
 
@@ -458,14 +455,17 @@ mod tests {
         assert_eq!(parsed.results.len(), 1);
         assert_eq!(parsed.results[0].doc_id.as_deref().unwrap(), "S100TEST");
         assert_eq!(parsed.results[0].edinet_code.as_ref().unwrap(), "E12345");
-        assert_eq!(parsed.results[0].filer_name.as_deref().unwrap(), "Test Company Ltd.");
+        assert_eq!(
+            parsed.results[0].filer_name.as_deref().unwrap(),
+            "Test Company Ltd."
+        );
     }
 
     #[tokio::test]
     async fn test_download_creates_directory_structure() {
-        use crate::models::{Source, DocumentFormat};
+        use crate::models::{DocumentFormat, Source};
         use chrono::NaiveDate;
-        
+
         let temp_dir = TempDir::new().unwrap();
         let request = DownloadRequest {
             source: Source::Edinet,
@@ -480,8 +480,9 @@ mod tests {
         // This will fail with API error since we don't have a real EDINET API key,
         // but should still create the directory structure
         let _ = download(&request, temp_dir.path().to_str().unwrap()).await;
-        
+
         let expected_dir = temp_dir.path().join("edinet").join("TEST");
         assert!(expected_dir.exists());
     }
 }
+

@@ -77,7 +77,7 @@ pub enum IndexCommands {
 async fn main() -> Result<()> {
     // Set default log level to INFO if not specified
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "edinet=info");
+        std::env::set_var("RUST_LOG", "edinet=info,fast10k=info");
     }
     
     // Initialize logging
