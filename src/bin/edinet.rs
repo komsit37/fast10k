@@ -120,6 +120,11 @@ async fn main() -> Result<()> {
             }
         },
         Commands::Search { sym } => {
+            // Check if index needs updating before searching
+            if let Err(e) = check_and_update_index_if_needed(db_path).await {
+                error!("Failed to check/update index: {}", e);
+            }
+            
             let search_query = models::SearchQuery {
                 ticker: Some(sym.clone()),
                 company_name: None,
@@ -184,5 +189,52 @@ async fn main() -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn check_and_update_index_if_needed(db_path: &str) -> Result<()> {
+    use chrono::{NaiveDate, Utc};
+    
+    // Check the latest date in the database
+    match storage::get_date_range_for_source(&models::Source::Edinet, db_path).await {
+        Ok((_start, end_date_str)) => {
+            // Parse the end date
+            if let Ok(last_indexed_date) = NaiveDate::parse_from_str(&end_date_str, "%Y-%m-%d") {
+                let today = Utc::now().date_naive();
+                let days_behind = (today - last_indexed_date).num_days();
+                
+                if days_behind > 1 {
+                    info!("Index is {} days behind (last indexed: {}). Updating...", days_behind, end_date_str);
+                    match edinet_indexer::update_edinet_index(db_path, days_behind + 1).await {
+                        Ok(count) => {
+                            info!("Updated index with {} EDINET documents", count);
+                        }
+                        Err(e) => {
+                            error!("Failed to update index: {}", e);
+                            return Err(e);
+                        }
+                    }
+                } else {
+                    info!("Index is up-to-date (last indexed: {})", end_date_str);
+                }
+            } else {
+                error!("Failed to parse last indexed date: {}", end_date_str);
+            }
+        }
+        Err(_) => {
+            // Database might be empty, try to build initial index for last 7 days
+            info!("No EDINET documents found in database. Building initial index for last 7 days...");
+            match edinet_indexer::build_edinet_index(db_path, 7).await {
+                Ok(count) => {
+                    info!("Built initial index with {} EDINET documents", count);
+                }
+                Err(e) => {
+                    error!("Failed to build initial index: {}", e);
+                    return Err(e);
+                }
+            }
+        }
+    }
+    
     Ok(())
 }
