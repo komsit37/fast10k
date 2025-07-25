@@ -34,21 +34,5 @@ pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usi
     Ok(1) // Return count of downloaded documents
 }
 
-// Helper functions for future implementation
-async fn search_tdnet_company(_client: &Client, _ticker: &str) -> Result<String> {
-    // TODO: Implement company search in TDNet
-    // This would search for the company by ticker
-    Ok("1234".to_string()) // Placeholder company code
-}
-
-async fn get_tdnet_announcements(_client: &Client, _company_code: &str) -> Result<Vec<String>> {
-    // TODO: Implement announcement list retrieval
-    // This would scrape or query TDNet for available announcements
-    Ok(vec![]) // Placeholder
-}
-
-async fn download_tdnet_document(_client: &Client, _document_url: &str, _output_path: &Path) -> Result<()> {
-    // TODO: Implement actual document download from TDNet
-    // This might involve PDF downloads and HTML parsing
-    Ok(())
-}
+// TODO: Implement TDNet functionality
+// Functions will be added here when TDNet integration is implemented

@@ -4,7 +4,7 @@ use anyhow::Result;
 use tracing::{info, error};
 
 // Reference the main library crate
-use fast10k::{edinet_indexer, storage, models, downloader};
+use fast10k::{edinet_indexer, storage, models, downloader, config::Config};
 
 #[derive(Parser)]
 #[command(name = "edinet")]
@@ -84,22 +84,23 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let cli = Cli::parse();
-    let db_path = "./fast10k.db";
+    let config = Config::from_env()?;
+    config.validate()?;
 
     match &cli.command {
         Commands::Index { subcommand } => match subcommand {
             IndexCommands::Stats => {
                 info!("Getting EDINET index statistics...");
-                if let Err(e) = edinet_indexer::get_edinet_index_stats(db_path).await {
+                if let Err(e) = edinet_indexer::get_edinet_index_stats(config.database_path_str()).await {
                     error!("Failed to get index statistics: {}", e);
                 }
             }
             IndexCommands::Update => {
                 info!("Updating EDINET index...");
-                match edinet_indexer::update_edinet_index(db_path, 7).await {
+                match edinet_indexer::update_edinet_index(config.database_path_str(), 7).await {
                     Ok(count) => {
                         info!("Successfully updated index with {} EDINET documents", count);
-                        if let Err(e) = edinet_indexer::get_edinet_index_stats(db_path).await {
+                        if let Err(e) = edinet_indexer::get_edinet_index_stats(config.database_path_str()).await {
                             error!("Failed to get index statistics: {}", e);
                         }
                     }
@@ -108,10 +109,10 @@ async fn main() -> Result<()> {
             }
             IndexCommands::Build { from, to } => {
                 info!("Building EDINET index from {} to {}...", from, to);
-                match edinet_indexer::build_edinet_index_by_date(db_path, *from, *to).await {
+                match edinet_indexer::build_edinet_index_by_date(config.database_path_str(), *from, *to).await {
                     Ok(count) => {
                         info!("Successfully indexed {} EDINET documents", count);
-                        if let Err(e) = edinet_indexer::get_edinet_index_stats(db_path).await {
+                        if let Err(e) = edinet_indexer::get_edinet_index_stats(config.database_path_str()).await {
                             error!("Failed to get index statistics: {}", e);
                         }
                     }
@@ -121,7 +122,7 @@ async fn main() -> Result<()> {
         },
         Commands::Search { sym } => {
             // Check if index needs updating before searching
-            if let Err(e) = check_and_update_index_if_needed(db_path).await {
+            if let Err(e) = check_and_update_index_if_needed(&config).await {
                 error!("Failed to check/update index: {}", e);
             }
             
@@ -135,7 +136,7 @@ async fn main() -> Result<()> {
                 text_query: None,
             };
             
-            match storage::search_documents(&search_query, db_path, 10).await {
+            match storage::search_documents(&search_query, config.database_path_str(), 10).await {
                 Ok(documents) => {
                     println!("date\tsym\tname\tdocType\tformats");
                     for doc in documents {
@@ -163,20 +164,20 @@ async fn main() -> Result<()> {
                 format: models::DocumentFormat::Complete,
             };
             
-            match downloader::download_documents(&download_request, "./downloads").await {
+            match downloader::download_documents(&download_request, config.download_dir_str()).await {
                 Ok(count) => info!("Successfully downloaded {} documents", count),
                 Err(e) => error!("Download failed: {}", e),
             }
         }
         Commands::LoadStatic { csv_path } => {
             info!("Loading EDINET static data from: {}", csv_path);
-            match storage::load_edinet_static_data(db_path, csv_path).await {
+            match storage::load_edinet_static_data(config.database_path_str(), csv_path).await {
                 Ok(count) => info!("Successfully loaded {} EDINET static records", count),
                 Err(e) => error!("Failed to load static data: {}", e),
             }
         }
         Commands::SearchStatic { query, limit } => {
-            match storage::search_edinet_static(db_path, query, *limit).await {
+            match storage::search_edinet_static(config.database_path_str(), query, *limit).await {
                 Ok(results) => {
                     println!("edinet_code\tsecurities_code\tsubmitter_name\tsubmitter_name_en\tindustry\tclosing_date\taddress");
                     for (edinet_code, submitter_name, submitter_name_en, securities_code, industry, closing_date, address) in results {
@@ -192,11 +193,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn check_and_update_index_if_needed(db_path: &str) -> Result<()> {
+async fn check_and_update_index_if_needed(config: &Config) -> Result<()> {
     use chrono::{NaiveDate, Utc};
     
     // Check the latest date in the database
-    match storage::get_date_range_for_source(&models::Source::Edinet, db_path).await {
+    match storage::get_date_range_for_source(&models::Source::Edinet, config.database_path_str()).await {
         Ok((_start, end_date_str)) => {
             // Parse the end date
             if let Ok(last_indexed_date) = NaiveDate::parse_from_str(&end_date_str, "%Y-%m-%d") {
@@ -205,7 +206,7 @@ async fn check_and_update_index_if_needed(db_path: &str) -> Result<()> {
                 
                 if days_behind > 1 {
                     info!("Index is {} days behind (last indexed: {}). Updating...", days_behind, end_date_str);
-                    match edinet_indexer::update_edinet_index(db_path, days_behind + 1).await {
+                    match edinet_indexer::update_edinet_index(config.database_path_str(), days_behind + 1).await {
                         Ok(count) => {
                             info!("Updated index with {} EDINET documents", count);
                         }
@@ -224,7 +225,7 @@ async fn check_and_update_index_if_needed(db_path: &str) -> Result<()> {
         Err(_) => {
             // Database might be empty, try to build initial index for last 7 days
             info!("No EDINET documents found in database. Building initial index for last 7 days...");
-            match edinet_indexer::build_edinet_index(db_path, 7).await {
+            match edinet_indexer::build_edinet_index(config.database_path_str(), 7).await {
                 Ok(count) => {
                     info!("Built initial index with {} EDINET documents", count);
                 }
