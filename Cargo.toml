@@ -54,6 +54,10 @@ uuid = { version = "1.0", features = ["v4", "serde"] }
 futures = "0.3"
 walkdir = "2.0"
 
+# ZIP processing
+zip = "0.6"
+scraper = "0.18"
+
 # Optional search engine
 tantivy = { version = "0.22", optional = true }
 

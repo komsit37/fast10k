@@ -8,6 +8,7 @@ pub mod types;
 pub mod indexer;
 pub mod downloader;
 pub mod errors;
+pub mod reader;
 
 pub use types::*;
 pub use errors::EdinetError;
@@ -21,3 +22,4 @@ pub use indexer::{
 };
 
 pub use downloader::download_documents;
+pub use reader::{read_edinet_zip, DocumentSection};

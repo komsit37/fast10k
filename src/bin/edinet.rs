@@ -4,7 +4,7 @@ use anyhow::Result;
 use tracing::{info, error};
 
 // Reference the main library crate
-use fast10k::{edinet_indexer, storage, models, downloader, config::Config};
+use fast10k::{edinet_indexer, storage, models, downloader, config::Config, edinet::reader};
 
 #[derive(Parser)]
 #[command(name = "edinet")]
@@ -52,6 +52,20 @@ pub enum Commands {
         /// Maximum number of results
         #[arg(long, default_value = "20")]
         limit: usize,
+    },
+    /// Read and preview EDINET ZIP file content
+    Read {
+        /// Path to EDINET ZIP file
+        #[arg(long)]
+        file: String,
+        
+        /// Maximum number of sections to display
+        #[arg(long, default_value = "5")]
+        limit: usize,
+        
+        /// Maximum characters per section
+        #[arg(long, default_value = "500")]
+        preview_length: usize,
     },
 }
 
@@ -186,6 +200,46 @@ async fn main() -> Result<()> {
                     }
                 }
                 Err(e) => error!("Search failed: {}", e),
+            }
+        }
+        Commands::Read { file, limit, preview_length } => {
+            info!("Reading EDINET ZIP file: {}", file);
+            match reader::read_edinet_zip(file, *limit, *preview_length) {
+                Ok(sections) => {
+                    println!("📁 EDINET Document: {}", file);
+                    println!("📄 Found {} content sections\n", sections.len());
+                    
+                    for (i, section) in sections.iter().enumerate() {
+                        println!("{}. {} ({} chars)", 
+                            i + 1, 
+                            section.section_type, 
+                            section.full_length
+                        );
+                        println!("   📂 {}", section.filename);
+                        
+                        if !section.content.trim().is_empty() {
+                            println!("   📝 Content preview:");
+                            // Add indentation to content lines for better readability
+                            for line in section.content.lines().take(10) {
+                                if !line.trim().is_empty() {
+                                    println!("      {}", line.trim());
+                                }
+                            }
+                        } else {
+                            println!("   📝 (No readable text content)");
+                        }
+                        
+                        if i < sections.len() - 1 {
+                            println!("   {}", "─".repeat(60));
+                        }
+                        println!();
+                    }
+                    
+                    if sections.len() >= *limit {
+                        println!("📌 Showing first {} sections. Use --limit to see more.", limit);
+                    }
+                }
+                Err(e) => error!("Failed to read EDINET ZIP file: {}", e),
             }
         }
     }
