@@ -8,7 +8,6 @@ use tracing::{debug, info, warn};
 
 // EDINET API endpoints
 const EDINET_BASE_URL: &str = "https://api.edinet-fsa.go.jp";
-const DOCUMENTS_ENDPOINT: &str = "/api/v2/documents.json";
 
 pub async fn download(request: &DownloadRequest, output_dir: &str) -> Result<usize> {
     info!("Starting EDINET download for ticker: {}", request.ticker);
@@ -176,96 +175,25 @@ struct EdinetErrorResponse {
     message: String,
 }
 
-async fn search_edinet_company(client: &Client, ticker: &str) -> Result<String> {
-    // Check if API key is available
-    let api_key = std::env::var("EDINET_API_KEY").map_err(|_| {
-        anyhow!("EDINET_API_KEY environment variable not set. Required for EDINET search.")
-    })?;
-
+async fn search_edinet_company(_client: &Client, ticker: &str) -> Result<String> {
     debug!("Searching for company with ticker: {}", ticker);
 
-    // Try to find EDINET code from static database
-    if let Ok(Some(edinet_code)) =
-        crate::storage::get_edinet_code_by_securities_code("./fast10k.db", ticker).await
-    {
-        info!(
-            "Found EDINET code {} for ticker {} in static database",
-            edinet_code, ticker
-        );
-        return Ok(edinet_code);
-    }
-
-    let url = format!("{}{}", EDINET_BASE_URL, DOCUMENTS_ENDPOINT);
-
-    // Search recent days to find the company dynamically
-    let end_date = chrono::Utc::now();
-    let start_date = end_date - chrono::Duration::days(7);
-
-    let mut current_date = start_date;
-
-    while current_date <= end_date {
-        let date_str = current_date.format("%Y-%m-%d").to_string();
-        debug!("Searching date: {}", date_str);
-
-        let mut request = client
-            .get(&url)
-            .query(&[("date", &date_str), ("type", &"2".to_string())]) // type=2 for corporate reports
-            .header("Ocp-Apim-Subscription-Key", &api_key);
-
-        let response = request.send().await?;
-        let status = response.status();
-
-        if status.is_success() {
-            let response_text = response.text().await?;
-            debug!(
-                "EDINET API response length: {} bytes for date {}",
-                response_text.len(),
-                date_str
+    // Find EDINET code from static database only
+    match crate::storage::get_edinet_code_by_securities_code("./fast10k.db", ticker).await {
+        Ok(Some(edinet_code)) => {
+            info!(
+                "Found EDINET code {} for ticker {} in static database",
+                edinet_code, ticker
             );
-
-            // Try to parse as JSON
-            if let Ok(metadata_response) =
-                serde_json::from_str::<EdinetIndexResponse>(&response_text)
-            {
-                if metadata_response.results.len() > 0 {
-                    info!(
-                        "Searching {} documents for ticker {} on date {}",
-                        metadata_response.results.len(),
-                        ticker,
-                        date_str
-                    );
-
-                    // Look for the company by ticker in sec_code or by searching filer_name
-                    for doc in &metadata_response.results {
-                        if let Some(sec_code) = &doc.sec_code {
-                            // Remove any suffix and compare with ticker
-                            let clean_sec_code = sec_code.chars().take(4).collect::<String>();
-                            if clean_sec_code == ticker {
-                                if let Some(edinet_code) = &doc.edinet_code {
-                                    info!("Found company {} with EDINET code {} for ticker {} on date {}", 
-                                        doc.filer_name.as_deref().unwrap_or("Unknown"), edinet_code, ticker, date_str);
-                                    return Ok(edinet_code.clone());
-                                }
-                            }
-                        }
-                    }
-
-                    // If we found documents but no match, break early to avoid too much searching
-                    // This prevents endless searching when company simply doesn't file often
-                    break;
-                }
-            }
-        } else {
-            debug!("Failed to get data for date {}: {}", date_str, status);
+            Ok(edinet_code)
         }
-
-        current_date = current_date + chrono::Duration::days(1);
-
-        // Rate limiting
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(None) => {
+            Err(anyhow!("Company with ticker {} not found in static database. Make sure the static data is loaded with 'edinet load-static'", ticker))
+        }
+        Err(e) => {
+            Err(anyhow!("Failed to query static database for ticker {}: {}", ticker, e))
+        }
     }
-
-    Err(anyhow!("Company with ticker {} not found in EDINET. You may need to use a different ticker or the company may not be actively filing.", ticker))
 }
 
 async fn get_edinet_documents_from_db(
