@@ -487,11 +487,11 @@ impl App {
                     "Navigate results with ↑/↓, Enter to view, d to download".to_string(),
                 );
             }
-            KeyCode::PageUp => {
+            KeyCode::Left | KeyCode::PageUp => {
                 self.results.previous_page();
                 self.set_status("Previous page".to_string());
             }
-            KeyCode::PageDown => {
+            KeyCode::Right | KeyCode::PageDown => {
                 self.results.next_page();
                 self.set_status("Next page".to_string());
             }
@@ -547,6 +547,14 @@ impl App {
             }
             KeyCode::Char('/') => {
                 self.navigate_to_screen(Screen::Search);
+            }
+            KeyCode::Home => {
+                self.results.go_to_first_page();
+                self.set_status("First page".to_string());
+            }
+            KeyCode::End => {
+                self.results.go_to_last_page();
+                self.set_status("Last page".to_string());
             }
             _ => {}
         }

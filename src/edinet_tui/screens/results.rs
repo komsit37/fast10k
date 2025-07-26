@@ -197,7 +197,7 @@ impl ResultsScreen {
         }
     }
 
-    fn go_to_first_page(&mut self) {
+    pub fn go_to_first_page(&mut self) {
         self.current_page = 0;
         self.document_state.select(if self.documents.is_empty() {
             None
@@ -206,7 +206,7 @@ impl ResultsScreen {
         });
     }
 
-    fn go_to_last_page(&mut self) {
+    pub fn go_to_last_page(&mut self) {
         if self.get_total_pages() > 0 {
             self.current_page = self.get_total_pages() - 1;
             let page_documents = self.get_current_page_documents();
