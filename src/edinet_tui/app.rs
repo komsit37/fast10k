@@ -719,27 +719,37 @@ impl App {
         self.viewer.is_loading = true;
         self.set_status("Loading document content...".to_string());
 
+        // Get the document ID from metadata for precise matching
+        let doc_id = document.metadata.get("doc_id")
+            .or_else(|| document.metadata.get("document_id"))
+            .unwrap_or(&document.id);
+
         // Construct expected download path
         let download_dir = std::path::PathBuf::from(self.config.download_dir_str());
         let edinet_dir = download_dir.join("edinet").join(&document.ticker);
 
-        // Look for ZIP files in the directory
+        // Look for the specific ZIP file matching this document's ID
         if let Ok(entries) = std::fs::read_dir(&edinet_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("zip") {
-                    match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), 20, 1000) {
-                        Ok(sections) => {
-                            self.viewer.content_sections = Some(sections);
-                            self.viewer.current_section = 0;
-                            self.viewer.is_loading = false;
-                            self.set_status("Document content loaded".to_string());
-                            return Ok(());
-                        }
-                        Err(e) => {
-                            self.set_error(format!("Failed to read document: {}", e));
-                            self.viewer.is_loading = false;
-                            return Ok(());
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        // Only load files that exactly match the document ID
+                        if filename.contains(doc_id) {
+                            match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), 20, 1000) {
+                                Ok(sections) => {
+                                    self.viewer.content_sections = Some(sections);
+                                    self.viewer.current_section = 0;
+                                    self.viewer.is_loading = false;
+                                    self.set_status("Document content loaded".to_string());
+                                    return Ok(());
+                                }
+                                Err(e) => {
+                                    self.set_error(format!("Failed to read document {}: {}", doc_id, e));
+                                    self.viewer.is_loading = false;
+                                    return Ok(());
+                                }
+                            }
                         }
                     }
                 }

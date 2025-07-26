@@ -243,7 +243,12 @@ impl ViewerScreen {
             None => return false,
         };
 
-        // Check if ZIP file exists in download directory
+        // Get the document ID from metadata for precise matching
+        let doc_id = document.metadata.get("doc_id")
+            .or_else(|| document.metadata.get("document_id"))
+            .unwrap_or(&document.id);
+
+        // Check if the specific ZIP file exists in download directory
         let download_dir = std::path::PathBuf::from(app.config.download_dir_str())
             .join("edinet")
             .join(&document.ticker);
@@ -252,7 +257,12 @@ impl ViewerScreen {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("zip") {
-                    return true;
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        // Check if this ZIP file matches our document ID
+                        if filename.contains(doc_id) {
+                            return true;
+                        }
+                    }
                 }
             }
         }
