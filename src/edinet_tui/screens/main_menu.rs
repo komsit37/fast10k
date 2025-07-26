@@ -45,19 +45,19 @@ impl MainMenuScreen {
             MenuOption::new(
                 "Search Documents",
                 "Search for EDINET documents by symbol, company, date, or type",
-                '1',
+                'S',
                 Screen::Search,
             ),
             MenuOption::new(
                 "Database Management",
                 "Manage EDINET document index, update, and statistics",
-                '2',
+                'D',
                 Screen::Database,
             ),
             MenuOption::new(
                 "Help",
                 "View help and keyboard shortcuts",
-                '3',
+                'H',
                 Screen::Help,
             ),
         ];
@@ -103,9 +103,10 @@ impl MainMenuScreen {
                 app.should_quit = true;
             }
             KeyCode::Char(c) => {
-                // Handle shortcut keys
+                // Handle shortcut keys (case insensitive)
+                let upper_c = c.to_ascii_uppercase();
                 for option in &self.menu_options {
-                    if option.shortcut == c {
+                    if option.shortcut == upper_c || option.shortcut == c {
                         app.navigate_to_screen(option.screen.clone());
                         break;
                     }
@@ -198,7 +199,8 @@ impl MainMenuScreen {
             ]),
             Line::from(vec![
                 Span::styled("Shortcuts: ", Styles::info()),
-                Span::raw("1-3 for direct access, "),
+                Span::styled("S/D/H", Style::default().add_modifier(Modifier::BOLD)),
+                Span::raw(" for direct access, "),
                 Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(" to quit"),
             ]),

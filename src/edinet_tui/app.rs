@@ -228,9 +228,9 @@ impl App {
                 "Main Menu:\n\
                 ↑/↓ - Navigate menu\n\
                 Enter - Select option\n\
-                1 - Search Documents\n\
-                2 - Database Management\n\
-                3 - Help\n\
+                S/s - Search Documents\n\
+                D/d - Database Management\n\
+                H/h - Help\n\
                 q - Quit"
             }
             Screen::Database => {
@@ -340,9 +340,10 @@ impl App {
                 self.should_quit = true;
             }
             KeyCode::Char(c) => {
-                // Handle shortcut keys
+                // Handle shortcut keys (case insensitive)
+                let upper_c = c.to_ascii_uppercase();
                 for option in &self.main_menu.menu_options {
-                    if option.shortcut == c {
+                    if option.shortcut == upper_c || option.shortcut == c {
                         self.navigate_to_screen(option.screen.clone());
                         break;
                     }
