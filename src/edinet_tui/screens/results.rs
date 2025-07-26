@@ -343,7 +343,8 @@ impl ResultsScreen {
 
         // Create header
         let header = ListItem::new(Line::from(vec![
-            Span::styled("Date       ", Styles::title()),
+            Span::styled("No.  ", Styles::title()),
+            Span::styled("│ Date       ", Styles::title()),
             Span::styled("│ Symbol   ", Styles::title()),
             Span::styled("│ Company                           ", Styles::title()),
             Span::styled("│ Type        ", Styles::title()),
@@ -359,8 +360,10 @@ impl ResultsScreen {
                     Style::default()
                 };
 
+                let row_number = self.current_page * self.items_per_page + i + 1;
                 let content = format!(
-                    "{} │ {:8} │ {:25} │ {:11} │ {:10}",
+                    "{:4} │ {} │ {:8} │ {:25} │ {:11} │ {:10}",
+                    row_number,
                     doc.date,
                     truncate_string(&doc.ticker, 8),
                     truncate_string(&doc.company_name, 25),
