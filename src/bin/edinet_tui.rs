@@ -25,8 +25,16 @@ async fn main() -> Result<()> {
         std::env::set_var("RUST_LOG", "edinet_tui=info,fast10k=info");
     }
     
-    // Initialize logging
-    tracing_subscriber::fmt::init();
+    // Initialize logging to file for TUI mode to avoid interfering with display
+    let log_file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("edinet_tui.log")?;
+    
+    tracing_subscriber::fmt()
+        .with_writer(log_file)
+        .with_ansi(false)
+        .init();
 
     info!("Starting EDINET TUI...");
 

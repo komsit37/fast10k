@@ -498,7 +498,7 @@ impl App {
             KeyCode::Enter | KeyCode::Char('v') => {
                 if let Some(document) = self.results.get_selected_document() {
                     self.viewer.set_document(document.clone());
-                    // Check download status
+                    // Check download status after setting document
                     self.viewer.is_downloaded = self.viewer.is_document_downloaded(self);
                     self.navigate_to_screen(Screen::Viewer);
                 } else {
@@ -554,75 +554,217 @@ impl App {
     }
 
     async fn handle_viewer_event(&mut self, key: KeyEvent) -> Result<()> {
+        // Handle download cancellation
+        if self.viewer.is_downloading {
+            if let KeyCode::Esc = key.code {
+                self.viewer.is_downloading = false;
+                self.viewer.download_status = None;
+                self.set_status("Download cancelled".to_string());
+                return Ok(());
+            }
+            // Ignore all other keys during download
+            return Ok(());
+        }
+
         match key.code {
             KeyCode::Tab => {
+                // Switch between modes
                 self.viewer.mode = match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info => {
-                        super::screens::viewer::ViewerMode::Content
-                    }
-                    super::screens::viewer::ViewerMode::Content => {
-                        super::screens::viewer::ViewerMode::Download
-                    }
-                    super::screens::viewer::ViewerMode::Download => {
-                        super::screens::viewer::ViewerMode::Info
-                    }
+                    super::screens::viewer::ViewerMode::Info => super::screens::viewer::ViewerMode::Content,
+                    super::screens::viewer::ViewerMode::Content => super::screens::viewer::ViewerMode::Download,
+                    super::screens::viewer::ViewerMode::Download => super::screens::viewer::ViewerMode::Info,
                 };
-                self.set_status(format!("Switched to {:?} mode", self.viewer.mode));
+                self.viewer.scroll_offset = 0;
             }
             KeyCode::Up => {
-                if self.viewer.scroll_offset > 0 {
-                    self.viewer.scroll_offset -= 1;
+                match self.viewer.mode {
+                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
+                        if self.viewer.scroll_offset > 0 {
+                            self.viewer.scroll_offset -= 1;
+                        }
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        if self.viewer.content_sections.is_some() && self.viewer.current_section > 0 {
+                            self.viewer.current_section -= 1;
+                            self.viewer.scroll_offset = 0;
+                        }
+                    }
                 }
             }
             KeyCode::Down => {
-                self.viewer.scroll_offset += 1;
+                match self.viewer.mode {
+                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
+                        self.viewer.scroll_offset += 1;
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        if let Some(ref sections) = self.viewer.content_sections {
+                            if self.viewer.current_section < sections.len() - 1 {
+                                self.viewer.current_section += 1;
+                                self.viewer.scroll_offset = 0;
+                            }
+                        }
+                    }
+                }
             }
             KeyCode::PageUp => {
-                self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
+                match self.viewer.mode {
+                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
+                        self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
+                    }
+                }
             }
             KeyCode::PageDown => {
-                self.viewer.scroll_offset += 10;
+                match self.viewer.mode {
+                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
+                        self.viewer.scroll_offset += 10;
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        self.viewer.scroll_offset += 10;
+                    }
+                }
             }
             KeyCode::Home => {
                 self.viewer.scroll_offset = 0;
+                if self.viewer.mode == super::screens::viewer::ViewerMode::Content {
+                    self.viewer.current_section = 0;
+                }
+            }
+            KeyCode::End => {
+                if self.viewer.mode == super::screens::viewer::ViewerMode::Content {
+                    if let Some(ref sections) = self.viewer.content_sections {
+                        self.viewer.current_section = sections.len().saturating_sub(1);
+                    }
+                }
+                self.viewer.scroll_offset = 0;
+            }
+            KeyCode::Enter => {
+                match self.viewer.mode {
+                    super::screens::viewer::ViewerMode::Content => {
+                        // Load content if not already loaded
+                        self.load_viewer_content().await?;
+                    }
+                    super::screens::viewer::ViewerMode::Download => {
+                        // Download document
+                        self.download_viewer_document().await?;
+                    }
+                    super::screens::viewer::ViewerMode::Info => {
+                        // Switch to content view
+                        self.viewer.mode = super::screens::viewer::ViewerMode::Content;
+                        self.load_viewer_content().await?;
+                    }
+                }
+            }
+            KeyCode::Char('d') => {
+                // Download document
+                self.download_viewer_document().await?;
+            }
+            KeyCode::Char('r') => {
+                // Reload/refresh content
+                if self.viewer.mode == super::screens::viewer::ViewerMode::Content {
+                    self.viewer.content_sections = None;
+                    self.load_viewer_content().await?;
+                }
+            }
+            KeyCode::Char('s') => {
+                // Save content to file (placeholder)
+                self.set_status("Save functionality not implemented yet".to_string());
             }
             KeyCode::Esc => {
                 // Viewer screen: ESC goes back to Results
                 self.navigate_to_screen(Screen::Results);
             }
-            KeyCode::Char('d') => {
-                // Download current document being viewed
-                if let Some(document) = self.viewer.current_document.clone() {
-                    self.set_status(format!("Starting download for {}", document.ticker));
-                    // Use the same download functionality as results screen
-                    let download_request = crate::models::DownloadRequest {
-                        source: crate::models::Source::Edinet,
-                        ticker: document.ticker.clone(),
-                        filing_type: Some(document.filing_type.clone()),
-                        date_from: Some(document.date),
-                        date_to: Some(document.date),
-                        limit: 1,
-                        format: crate::models::DocumentFormat::Complete,
-                    };
-                    
-                    match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
-                        Ok(count) => {
-                            self.set_status(format!(
-                                "Successfully downloaded {} document(s) to {}",
-                                count,
-                                self.config.download_dir_str()
-                            ));
-                        }
-                        Err(e) => {
-                            self.set_error(format!("Download failed: {}", e));
-                        }
-                    }
-                } else {
-                    self.set_error("No document loaded in viewer".to_string());
-                }
-            }
             _ => {}
         }
+        Ok(())
+    }
+
+    /// Load document content for viewer
+    async fn load_viewer_content(&mut self) -> Result<()> {
+        if self.viewer.content_sections.is_some() {
+            return Ok(()); // Already loaded
+        }
+
+        let document = match &self.viewer.current_document {
+            Some(doc) => doc.clone(),
+            None => return Ok(()),
+        };
+
+        self.viewer.is_loading = true;
+        self.set_status("Loading document content...".to_string());
+
+        // Construct expected download path
+        let download_dir = std::path::PathBuf::from(self.config.download_dir_str());
+        let edinet_dir = download_dir.join("edinet").join(&document.ticker);
+
+        // Look for ZIP files in the directory
+        if let Ok(entries) = std::fs::read_dir(&edinet_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("zip") {
+                    match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), 20, 1000) {
+                        Ok(sections) => {
+                            self.viewer.content_sections = Some(sections);
+                            self.viewer.current_section = 0;
+                            self.viewer.is_loading = false;
+                            self.set_status("Document content loaded".to_string());
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            self.set_error(format!("Failed to read document: {}", e));
+                            self.viewer.is_loading = false;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no downloaded file found, suggest downloading
+        self.set_error("Document not found locally. Use 'd' to download first.".to_string());
+        self.viewer.is_loading = false;
+        Ok(())
+    }
+
+    /// Download document from viewer
+    async fn download_viewer_document(&mut self) -> Result<()> {
+        let document = match &self.viewer.current_document {
+            Some(doc) => doc.clone(),
+            None => return Ok(()),
+        };
+
+        self.viewer.is_downloading = true;
+        self.viewer.download_status = Some(format!("Downloading {}...", document.ticker));
+        
+        self.set_status(format!("Starting download for {}", document.ticker));
+
+        let download_request = crate::models::DownloadRequest {
+            source: crate::models::Source::Edinet,
+            ticker: document.ticker.clone(),
+            filing_type: Some(document.filing_type.clone()),
+            date_from: Some(document.date),
+            date_to: Some(document.date),
+            limit: 1,
+            format: crate::models::DocumentFormat::Complete,
+        };
+
+        match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
+            Ok(count) => {
+                self.set_status(format!("Successfully downloaded {} document(s)", count));
+                // Clear content sections to force reload
+                self.viewer.content_sections = None;
+                // Update download status
+                self.viewer.is_downloaded = self.viewer.is_document_downloaded(self);
+            }
+            Err(e) => {
+                self.set_error(format!("Download failed: {}", e));
+            }
+        }
+
+        self.viewer.is_downloading = false;
+        self.viewer.download_status = None;
         Ok(())
     }
 

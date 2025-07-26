@@ -484,7 +484,14 @@ impl ViewerScreen {
                     .border_style(Styles::active_border()));
             f.render_widget(loading_widget, area);
         } else {
-            let message_widget = Paragraph::new("Press Enter to load content\n\nNote: Document must be downloaded first")
+            // Check if document is downloaded and provide appropriate message
+            let message = if self.is_downloaded {
+                "Press Enter to load content"
+            } else {
+                "Press Enter to load content\n\nNote: Document must be downloaded first"
+            };
+
+            let message_widget = Paragraph::new(message)
                 .style(Styles::inactive())
                 .block(Block::default()
                     .title("Document Content")
