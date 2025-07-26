@@ -238,7 +238,7 @@ impl SearchScreen {
         }
     }
 
-    fn handle_delete(&mut self) {
+    pub fn handle_delete(&mut self) {
         match self.fields[self.current_field] {
             SearchField::Ticker => self.ticker_input.delete_char_forward(),
             SearchField::CompanyName => self.company_input.delete_char_forward(),
@@ -249,7 +249,7 @@ impl SearchScreen {
         }
     }
 
-    fn handle_cursor_left(&mut self) {
+    pub fn handle_cursor_left(&mut self) {
         match self.fields[self.current_field] {
             SearchField::Ticker => self.ticker_input.move_cursor_left(),
             SearchField::CompanyName => self.company_input.move_cursor_left(),
@@ -260,7 +260,7 @@ impl SearchScreen {
         }
     }
 
-    fn handle_cursor_right(&mut self) {
+    pub fn handle_cursor_right(&mut self) {
         match self.fields[self.current_field] {
             SearchField::Ticker => self.ticker_input.move_cursor_right(),
             SearchField::CompanyName => self.company_input.move_cursor_right(),
@@ -271,7 +271,7 @@ impl SearchScreen {
         }
     }
 
-    fn handle_cursor_home(&mut self) {
+    pub fn handle_cursor_home(&mut self) {
         match self.fields[self.current_field] {
             SearchField::Ticker => self.ticker_input.move_cursor_to_start(),
             SearchField::CompanyName => self.company_input.move_cursor_to_start(),
@@ -282,7 +282,7 @@ impl SearchScreen {
         }
     }
 
-    fn handle_cursor_end(&mut self) {
+    pub fn handle_cursor_end(&mut self) {
         match self.fields[self.current_field] {
             SearchField::Ticker => self.ticker_input.move_cursor_to_end(),
             SearchField::CompanyName => self.company_input.move_cursor_to_end(),

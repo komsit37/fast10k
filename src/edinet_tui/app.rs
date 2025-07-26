@@ -457,6 +457,21 @@ impl App {
             KeyCode::Backspace => {
                 self.search.handle_backspace();
             }
+            KeyCode::Delete => {
+                self.search.handle_delete();
+            }
+            KeyCode::Left => {
+                self.search.handle_cursor_left();
+            }
+            KeyCode::Right => {
+                self.search.handle_cursor_right();
+            }
+            KeyCode::Home => {
+                self.search.handle_cursor_home();
+            }
+            KeyCode::End => {
+                self.search.handle_cursor_end();
+            }
             _ => {}
         }
         Ok(())
