@@ -72,7 +72,11 @@ impl MainMenuScreen {
     }
 
     /// Handle key events for the main menu
-    pub async fn handle_event(&mut self, key: KeyEvent, app: &mut super::super::app::App) -> Result<()> {
+    pub async fn handle_event(
+        &mut self,
+        key: KeyEvent,
+        app: &mut super::super::app::App,
+    ) -> Result<()> {
         match key.code {
             KeyCode::Up => {
                 let selected = self.menu_state.selected().unwrap_or(0);
@@ -118,18 +122,18 @@ impl MainMenuScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Title
-                Constraint::Min(0),     // Menu
-                Constraint::Length(6),  // Instructions
+                Constraint::Length(3), // Title
+                Constraint::Min(0),    // Menu
+                Constraint::Length(6), // Instructions
             ])
             .split(area);
 
         // Draw title
         self.draw_title(f, chunks[0]);
-        
+
         // Draw menu
         self.draw_menu(f, chunks[1]);
-        
+
         // Draw instructions
         self.draw_instructions(f, chunks[2]);
     }
@@ -158,12 +162,13 @@ impl MainMenuScreen {
                         Span::styled(format!("[{}] ", option.shortcut), Styles::info()),
                         Span::styled(&option.title, style.add_modifier(Modifier::BOLD)),
                     ]),
-                    Line::from(Span::styled(format!("     {}", option.description), 
+                    Line::from(Span::styled(
+                        format!("     {}", option.description),
                         if Some(i) == self.menu_state.selected() {
                             style
                         } else {
                             Styles::inactive()
-                        }
+                        },
                     )),
                 ];
 
@@ -172,10 +177,12 @@ impl MainMenuScreen {
             .collect();
 
         let menu = List::new(items)
-            .block(Block::default()
-                .title("Main Menu")
-                .borders(Borders::ALL)
-                .border_style(Styles::active_border()))
+            .block(
+                Block::default()
+                    .title("Main Menu")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::active_border()),
+            )
             .highlight_style(Styles::selected());
 
         f.render_stateful_widget(menu, area, &mut self.menu_state);
@@ -199,17 +206,19 @@ impl MainMenuScreen {
                 Span::styled("Global: ", Styles::info()),
                 Span::styled("F1/?", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(" for help, "),
-                Span::styled("Ctrl+Q", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
                 Span::raw(" to quit from anywhere"),
             ]),
         ];
 
-        let instructions_paragraph = Paragraph::new(instructions)
-            .block(Block::default()
+        let instructions_paragraph = Paragraph::new(instructions).block(
+            Block::default()
                 .title("Instructions")
                 .borders(Borders::ALL)
-                .border_style(Styles::inactive_border()));
+                .border_style(Styles::inactive_border()),
+        );
 
         f.render_widget(instructions_paragraph, area);
     }
 }
+

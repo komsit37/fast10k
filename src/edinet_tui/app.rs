@@ -10,10 +10,10 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use crate::config::Config;
-use crate::models::{SearchQuery, Source, FilingType};
-use crate::storage;
 use super::screens::*;
+use crate::config::Config;
+use crate::models::{FilingType, SearchQuery, Source};
+use crate::storage;
 
 /// Application screens
 #[derive(Debug, Clone, PartialEq)]
@@ -34,7 +34,7 @@ pub struct App {
     pub previous_screen: Option<Screen>,
     /// Application configuration
     pub config: Config,
-    
+
     // Screen states
     pub main_menu: MainMenuScreen,
     pub database: DatabaseScreen,
@@ -42,7 +42,7 @@ pub struct App {
     pub results: ResultsScreen,
     pub viewer: ViewerScreen,
     pub help: HelpScreen,
-    
+
     // Global application state
     pub should_quit: bool,
     pub show_help_popup: bool,
@@ -57,14 +57,14 @@ impl App {
             current_screen: Screen::MainMenu,
             previous_screen: None,
             config: config.clone(),
-            
+
             main_menu: MainMenuScreen::new(),
             database: DatabaseScreen::new(config.clone()),
             search: SearchScreen::new(),
             results: ResultsScreen::new(),
             viewer: ViewerScreen::new(),
             help: HelpScreen::new(),
-            
+
             should_quit: false,
             show_help_popup: false,
             status_message: None,
@@ -76,7 +76,7 @@ impl App {
     pub async fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         // Initial database check
         self.check_database_status().await;
-        
+
         loop {
             // Draw the UI
             terminal.draw(|f| self.draw(f))?;
@@ -109,18 +109,7 @@ impl App {
                     self.show_help_popup = false;
                     return Ok(());
                 }
-                return Ok(());
-            }
-            KeyCode::Backspace => {
-                // Backspace goes back to previous screen or main menu
-                if let Some(prev) = self.previous_screen.clone() {
-                    self.navigate_to_screen(prev);
-                } else if self.current_screen != Screen::MainMenu {
-                    self.navigate_to_screen(Screen::MainMenu);
-                } else {
-                    self.should_quit = true;
-                }
-                return Ok(());
+                // ESC handling is now delegated to individual screen handlers
             }
             KeyCode::Char('q') => {
                 self.should_quit = true;
@@ -180,10 +169,11 @@ impl App {
         } else if let Some(ref err) = self.error_message {
             format!("Error: {}", err)
         } else {
-            format!("EDINET TUI - {} | Backspace: Back | Q: Quit | F1/?:Help", 
+            format!(
+                "EDINET TUI - {} | ESC: Back | Q: Quit | F1/?:Help",
                 match self.current_screen {
                     Screen::MainMenu => "Main Menu",
-                    Screen::Database => "Database Management", 
+                    Screen::Database => "Database Management",
                     Screen::Search => "Search Documents",
                     Screen::Results => "Search Results",
                     Screen::Viewer => "Document Viewer",
@@ -210,15 +200,17 @@ impl App {
     /// Draw help popup with context-sensitive shortcuts
     fn draw_help_popup(&self, f: &mut Frame, area: Rect) {
         let popup_area = centered_rect(80, 70, area);
-        
+
         f.render_widget(Clear, popup_area);
-        
+
         let help_content = self.get_context_help();
         let help_popup = Paragraph::new(help_content)
-            .block(Block::default()
-                .title("Help - Context Shortcuts")
-                .borders(Borders::ALL)
-                .style(Style::default().fg(Color::Yellow)))
+            .block(
+                Block::default()
+                    .title("Help - Context Shortcuts")
+                    .borders(Borders::ALL)
+                    .style(Style::default().fg(Color::Yellow)),
+            )
             .style(Style::default().fg(Color::White));
 
         f.render_widget(help_popup, popup_area);
@@ -227,50 +219,61 @@ impl App {
     /// Get context-sensitive help content
     fn get_context_help(&self) -> String {
         let global_help = "Global Shortcuts:\n\
-            Backspace - Go back / Main menu\n\
+            ESC - Go back\n\
             Q - Quit application\n\
-            F1 / ? - Toggle this help\n\
-            ESC - Close help popup\n\n";
+            F1 / ? - Toggle this help\n\n";
 
         let screen_help = match self.current_screen {
-            Screen::MainMenu => "Main Menu:\n\
+            Screen::MainMenu => {
+                "Main Menu:\n\
                 ↑/↓ - Navigate menu\n\
                 Enter - Select option\n\
                 1 - Database Management\n\
                 2 - Search Documents\n\
                 3 - Help\n\
-                q - Quit",
-            Screen::Database => "Database Management:\n\
+                q - Quit"
+            }
+            Screen::Database => {
+                "Database Management:\n\
                 ↑/↓ - Navigate options\n\
                 Enter - Execute action\n\
                 s - Show statistics\n\
                 u - Update index\n\
                 b - Build index (date range)\n\
-                c - Clear/rebuild index",
-            Screen::Search => "Search Documents:\n\
+                c - Clear/rebuild index"
+            }
+            Screen::Search => {
+                "Search Documents:\n\
                 Tab - Next field\n\
                 Shift+Tab - Previous field\n\
                 Enter - Execute search\n\
                 Type in text fields\n\
                 ↑/↓ - Navigate dropdowns\n\
-                Space - Toggle selections",
-            Screen::Results => "Search Results:\n\
+                Space - Toggle selections"
+            }
+            Screen::Results => {
+                "Search Results:\n\
                 ↑/↓ - Navigate documents\n\
                 Enter - View document\n\
                 d - Download document\n\
                 r - Refresh search\n\
                 / - New search\n\
-                Page Up/Down - Navigate pages",
-            Screen::Viewer => "Document Viewer:\n\
+                Page Up/Down - Navigate pages"
+            }
+            Screen::Viewer => {
+                "Document Viewer:\n\
                 ↑/↓ - Scroll content\n\
                 Page Up/Down - Page scroll\n\
                 Home/End - Top/Bottom\n\
                 d - Download document\n\
                 s - Save content to file\n\
-                Enter - Open in external viewer",
-            Screen::Help => "Help Screen:\n\
+                Enter - Open in external viewer"
+            }
+            Screen::Help => {
+                "Help Screen:\n\
                 ↑/↓ - Scroll help content\n\
-                Tab - Switch help sections",
+                Tab - Switch help sections"
+            }
         };
 
         format!("{}{}", global_help, screen_help)
@@ -308,7 +311,7 @@ impl App {
         self.set_status("Ready - Database connection established".to_string());
     }
 
-    // Event handlers for each screen 
+    // Event handlers for each screen
     async fn handle_main_menu_event(&mut self, key: KeyEvent) -> Result<()> {
         // Extract the required data before borrowing self
         match key.code {
@@ -368,16 +371,24 @@ impl App {
             }
             KeyCode::Enter => {
                 if let Some(selected) = self.database.operation_state.selected() {
-                    if selected == 0 { // Show Stats
+                    if selected == 0 {
+                        // Show Stats
                         self.set_status("Database statistics - feature coming soon".to_string());
-                    } else if selected == 1 { // Update Index
+                    } else if selected == 1 {
+                        // Update Index
                         self.set_status("Index update - feature coming soon".to_string());
-                    } else if selected == 2 { // Build Index
+                    } else if selected == 2 {
+                        // Build Index
                         self.set_status("Index build - feature coming soon".to_string());
-                    } else if selected == 3 { // Clear Index
+                    } else if selected == 3 {
+                        // Clear Index
                         self.set_status("Index clear - feature coming soon".to_string());
                     }
                 }
+            }
+            KeyCode::Esc => {
+                // Database screen: ESC goes back to Main Menu
+                self.navigate_to_screen(Screen::MainMenu);
             }
             KeyCode::Char('s') => {
                 self.set_status("Database statistics - feature coming soon".to_string());
@@ -399,9 +410,13 @@ impl App {
     async fn handle_search_event(&mut self, key: KeyEvent) -> Result<()> {
         match key.code {
             KeyCode::Tab => {
-                self.search.current_field = (self.search.current_field + 1) % self.search.fields.len();
+                self.search.current_field =
+                    (self.search.current_field + 1) % self.search.fields.len();
                 self.search.update_field_focus();
-                self.set_status(format!("Focus: {}", self.search.fields[self.search.current_field].as_str()));
+                self.set_status(format!(
+                    "Focus: {}",
+                    self.search.fields[self.search.current_field].as_str()
+                ));
             }
             KeyCode::BackTab => {
                 self.search.current_field = if self.search.current_field == 0 {
@@ -410,7 +425,10 @@ impl App {
                     self.search.current_field - 1
                 };
                 self.search.update_field_focus();
-                self.set_status(format!("Focus: {}", self.search.fields[self.search.current_field].as_str()));
+                self.set_status(format!(
+                    "Focus: {}",
+                    self.search.fields[self.search.current_field].as_str()
+                ));
             }
             KeyCode::Up => {
                 if self.search.current_field > 0 {
@@ -428,12 +446,15 @@ impl App {
                 // Execute search
                 self.execute_search().await?;
             }
+            KeyCode::Esc => {
+                // Search screen: ESC goes back to Main Menu
+                self.navigate_to_screen(Screen::MainMenu);
+            }
             KeyCode::Char(c) => {
                 self.search.handle_char_input(c);
             }
             KeyCode::Backspace => {
                 self.search.handle_backspace();
-                return Ok(());
             }
             _ => {}
         }
@@ -444,11 +465,15 @@ impl App {
         match key.code {
             KeyCode::Up => {
                 self.results.navigate_up();
-                self.set_status("Navigate results with ↑/↓, Enter to view, d to download".to_string());
+                self.set_status(
+                    "Navigate results with ↑/↓, Enter to view, d to download".to_string(),
+                );
             }
             KeyCode::Down => {
                 self.results.navigate_down();
-                self.set_status("Navigate results with ↑/↓, Enter to view, d to download".to_string());
+                self.set_status(
+                    "Navigate results with ↑/↓, Enter to view, d to download".to_string(),
+                );
             }
             KeyCode::PageUp => {
                 self.results.previous_page();
@@ -466,6 +491,10 @@ impl App {
                     self.set_error("No document selected".to_string());
                 }
             }
+            KeyCode::Esc => {
+                // Results screen: ESC goes back to Search
+                self.navigate_to_screen(Screen::Search);
+            }
             KeyCode::Char('d') => {
                 self.set_status("Document download - coming soon".to_string());
             }
@@ -481,9 +510,15 @@ impl App {
         match key.code {
             KeyCode::Tab => {
                 self.viewer.mode = match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info => super::screens::viewer::ViewerMode::Content,
-                    super::screens::viewer::ViewerMode::Content => super::screens::viewer::ViewerMode::Download,
-                    super::screens::viewer::ViewerMode::Download => super::screens::viewer::ViewerMode::Info,
+                    super::screens::viewer::ViewerMode::Info => {
+                        super::screens::viewer::ViewerMode::Content
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        super::screens::viewer::ViewerMode::Download
+                    }
+                    super::screens::viewer::ViewerMode::Download => {
+                        super::screens::viewer::ViewerMode::Info
+                    }
                 };
                 self.set_status(format!("Switched to {:?} mode", self.viewer.mode));
             }
@@ -504,6 +539,10 @@ impl App {
             KeyCode::Home => {
                 self.viewer.scroll_offset = 0;
             }
+            KeyCode::Esc => {
+                // Viewer screen: ESC goes back to Results
+                self.navigate_to_screen(Screen::Results);
+            }
             KeyCode::Char('d') => {
                 self.set_status("Document download - coming soon".to_string());
             }
@@ -517,14 +556,18 @@ impl App {
             KeyCode::Up => {
                 if self.help.current_section > 0 {
                     self.help.current_section -= 1;
-                    self.help.section_state.select(Some(self.help.current_section));
+                    self.help
+                        .section_state
+                        .select(Some(self.help.current_section));
                     self.help.scroll_offset = 0;
                 }
             }
             KeyCode::Down => {
                 if self.help.current_section < self.help.sections.len() - 1 {
                     self.help.current_section += 1;
-                    self.help.section_state.select(Some(self.help.current_section));
+                    self.help
+                        .section_state
+                        .select(Some(self.help.current_section));
                     self.help.scroll_offset = 0;
                 }
             }
@@ -536,6 +579,10 @@ impl App {
             }
             KeyCode::Home => {
                 self.help.scroll_offset = 0;
+            }
+            KeyCode::Esc => {
+                // Help screen: ESC goes back to Main Menu
+                self.navigate_to_screen(Screen::MainMenu);
             }
             _ => {}
         }
@@ -553,7 +600,7 @@ impl App {
                 return Ok(());
             }
         }
-        
+
         if !self.search.date_to_input.is_empty() {
             if NaiveDate::parse_from_str(&self.search.date_to_input.value, "%Y-%m-%d").is_err() {
                 self.set_error("Invalid 'Date To' format. Please use YYYY-MM-DD".to_string());
@@ -563,80 +610,118 @@ impl App {
 
         // Build search query
         let search_query = SearchQuery {
-            ticker: if self.search.ticker_input.is_empty() { 
-                None 
-            } else { 
-                Some(self.search.ticker_input.value.clone()) 
+            ticker: if self.search.ticker_input.is_empty() {
+                None
+            } else {
+                Some(self.search.ticker_input.value.clone())
             },
-            company_name: if self.search.company_input.is_empty() { 
-                None 
-            } else { 
-                Some(self.search.company_input.value.clone()) 
+            company_name: if self.search.company_input.is_empty() {
+                None
+            } else {
+                Some(self.search.company_input.value.clone())
             },
             filing_type: self.search.filing_type_list.selected().cloned(),
             source: Some(Source::Edinet),
-            date_from: if self.search.date_from_input.is_empty() { 
-                None 
-            } else { 
-                NaiveDate::parse_from_str(&self.search.date_from_input.value, "%Y-%m-%d").ok() 
+            date_from: if self.search.date_from_input.is_empty() {
+                None
+            } else {
+                NaiveDate::parse_from_str(&self.search.date_from_input.value, "%Y-%m-%d").ok()
             },
-            date_to: if self.search.date_to_input.is_empty() { 
-                None 
-            } else { 
-                NaiveDate::parse_from_str(&self.search.date_to_input.value, "%Y-%m-%d").ok() 
+            date_to: if self.search.date_to_input.is_empty() {
+                None
+            } else {
+                NaiveDate::parse_from_str(&self.search.date_to_input.value, "%Y-%m-%d").ok()
             },
-            text_query: if self.search.text_query_input.is_empty() { 
-                None 
-            } else { 
-                Some(self.search.text_query_input.value.clone()) 
+            text_query: if self.search.text_query_input.is_empty() {
+                None
+            } else {
+                Some(self.search.text_query_input.value.clone())
             },
         };
 
         // Check if search has any criteria
-        if search_query.ticker.is_none() 
+        if search_query.ticker.is_none()
             && search_query.company_name.is_none()
             && search_query.filing_type.is_none()
-            && search_query.date_from.is_none() 
+            && search_query.date_from.is_none()
             && search_query.date_to.is_none()
-            && search_query.text_query.is_none() {
+            && search_query.text_query.is_none()
+        {
             self.set_error("Please enter at least one search criteria".to_string());
             return Ok(());
         }
 
         self.set_status("Searching documents...".to_string());
 
-        // Debug: Log the search query in app.rs too  
+        // Debug: Log the search query in app.rs too
         use std::fs::OpenOptions;
         use std::io::Write;
-        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
-            writeln!(file, "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
-                search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source).ok();
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("tui_debug.log")
+        {
+            writeln!(
+                file,
+                "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}",
+                search_query.ticker,
+                search_query.company_name,
+                search_query.filing_type,
+                search_query.source
+            )
+            .ok();
         }
-        eprintln!("App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
-            search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source);
+        eprintln!(
+            "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}",
+            search_query.ticker,
+            search_query.company_name,
+            search_query.filing_type,
+            search_query.source
+        );
 
         match storage::search_documents(&search_query, self.config.database_path_str(), 100).await {
             Ok(documents) => {
                 // Debug: Log search results
-                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
-                    writeln!(file, "Search completed: found {} documents", documents.len()).ok();
+                if let Ok(mut file) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("tui_debug.log")
+                {
+                    writeln!(
+                        file,
+                        "Search completed: found {} documents",
+                        documents.len()
+                    )
+                    .ok();
                     for (i, doc) in documents.iter().take(3).enumerate() {
-                        writeln!(file, "Doc {}: {} {} {}", i+1, doc.ticker, doc.company_name, doc.filing_type.as_str()).ok();
+                        writeln!(
+                            file,
+                            "Doc {}: {} {} {}",
+                            i + 1,
+                            doc.ticker,
+                            doc.company_name,
+                            doc.filing_type.as_str()
+                        )
+                        .ok();
                     }
                 }
-                
+
                 self.set_status(format!("Found {} documents", documents.len()));
-                
+
                 // Store results in the results screen
                 self.results.set_documents(documents);
                 self.search.last_query = Some(search_query);
-                
+
                 // Navigate to results screen
                 self.navigate_to_screen(Screen::Results);
             }
             Err(e) => {
                 // Debug: Log search error
-                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+                if let Ok(mut file) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open("tui_debug.log")
+                {
                     writeln!(file, "Search failed with error: {}", e).ok();
                 }
                 self.set_error(format!("Search failed: {}", e));
@@ -667,3 +752,4 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1]
 }
+

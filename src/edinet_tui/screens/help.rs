@@ -71,7 +71,11 @@ impl HelpScreen {
     }
 
     /// Handle key events for the help screen
-    pub async fn handle_event(&mut self, key: KeyEvent, _app: &mut super::super::app::App) -> Result<()> {
+    pub async fn handle_event(
+        &mut self,
+        key: KeyEvent,
+        _app: &mut super::super::app::App,
+    ) -> Result<()> {
         match key.code {
             KeyCode::Up => {
                 if self.current_section > 0 {
@@ -116,7 +120,10 @@ impl HelpScreen {
 
     fn get_overview_content(&self) -> Vec<Line> {
         vec![
-            Line::from(Span::styled("EDINET TUI - Document Manager", Styles::title())),
+            Line::from(Span::styled(
+                "EDINET TUI - Document Manager",
+                Styles::title(),
+            )),
             Line::from(""),
             Line::from("This application provides a terminal-based interface for managing"),
             Line::from("EDINET (Japan Financial Services Agency) documents."),
@@ -143,7 +150,7 @@ impl HelpScreen {
             Line::from(""),
             Line::from(Span::styled("Global Navigation:", Styles::info())),
             Line::from("• ESC - Go back to previous screen or main menu"),
-            Line::from("• Ctrl+Q - Quit application from anywhere"),
+            Line::from("• q - Quit application from anywhere"),
             Line::from("• F1 or ? - Toggle help popup"),
             Line::from(""),
             Line::from(Span::styled("Screen Navigation:", Styles::info())),
@@ -280,12 +287,15 @@ impl HelpScreen {
 
     fn get_shortcuts_content(&self) -> Vec<Line> {
         vec![
-            Line::from(Span::styled("Keyboard Shortcuts Reference", Styles::title())),
+            Line::from(Span::styled(
+                "Keyboard Shortcuts Reference",
+                Styles::title(),
+            )),
             Line::from(""),
             Line::from(Span::styled("Global Shortcuts:", Styles::info())),
             Line::from("┌─────────────┬─────────────────────────────────┐"),
             Line::from("│ ESC         │ Go back / Main menu             │"),
-            Line::from("│ Ctrl+Q      │ Quit application                │"),
+            Line::from("│ q           │ Quit application                │"),
             Line::from("│ F1 or ?     │ Toggle help popup               │"),
             Line::from("└─────────────┴─────────────────────────────────┘"),
             Line::from(""),
@@ -326,7 +336,7 @@ impl HelpScreen {
 
         // Draw section list
         self.draw_section_list(f, chunks[0]);
-        
+
         // Draw content
         self.draw_content(f, chunks[1]);
     }
@@ -347,10 +357,12 @@ impl HelpScreen {
             .collect();
 
         let section_list = List::new(items)
-            .block(Block::default()
-                .title("Help Sections")
-                .borders(Borders::ALL)
-                .border_style(Styles::active_border()))
+            .block(
+                Block::default()
+                    .title("Help Sections")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::active_border()),
+            )
             .highlight_style(Styles::selected());
 
         f.render_stateful_widget(section_list, area, &mut self.section_state);
@@ -358,20 +370,23 @@ impl HelpScreen {
 
     fn draw_content(&self, f: &mut Frame, area: Rect) {
         let content_lines = self.get_section_content();
-        
+
         // Apply scrolling
-        let visible_lines: Vec<Line> = content_lines
-            .into_iter()
-            .skip(self.scroll_offset)
-            .collect();
+        let visible_lines: Vec<Line> = content_lines.into_iter().skip(self.scroll_offset).collect();
 
         let content_widget = Paragraph::new(visible_lines)
-            .block(Block::default()
-                .title(format!("Help - {}", self.sections[self.current_section].as_str()))
-                .borders(Borders::ALL)
-                .border_style(Styles::active_border()))
+            .block(
+                Block::default()
+                    .title(format!(
+                        "Help - {}",
+                        self.sections[self.current_section].as_str()
+                    ))
+                    .borders(Borders::ALL)
+                    .border_style(Styles::active_border()),
+            )
             .wrap(Wrap { trim: true });
 
         f.render_widget(content_widget, area);
     }
 }
+
