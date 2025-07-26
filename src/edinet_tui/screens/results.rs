@@ -102,10 +102,10 @@ impl ResultsScreen {
             KeyCode::Down => {
                 self.navigate_down();
             }
-            KeyCode::PageUp => {
+            KeyCode::Left => {
                 self.previous_page();
             }
-            KeyCode::PageDown => {
+            KeyCode::Right => {
                 self.next_page();
             }
             KeyCode::Home => {
@@ -269,6 +269,28 @@ impl ResultsScreen {
             ])
             .split(area);
 
+        // Calculate items per page based on available height
+        // Subtract 3 for borders (top, bottom, header)
+        let available_height = chunks[1].height.saturating_sub(3);
+        let calculated_items_per_page = (available_height as usize).saturating_sub(1).max(10); // At least 10 items
+        
+        // Update items_per_page if it's significantly different
+        if calculated_items_per_page != self.items_per_page {
+            let old_page = self.current_page;
+            let old_selected = self.document_state.selected();
+            let old_items_per_page = self.items_per_page;
+            
+            self.items_per_page = calculated_items_per_page;
+            
+            // Recalculate current page to maintain selection position
+            if let Some(selected_local_idx) = old_selected {
+                let global_idx = old_page * old_items_per_page + selected_local_idx;
+                self.current_page = global_idx / self.items_per_page;
+                let new_local_idx = global_idx % self.items_per_page;
+                self.document_state.select(Some(new_local_idx));
+            }
+        }
+
         // Draw title and stats
         self.draw_title(f, chunks[0]);
 
@@ -368,7 +390,7 @@ impl ResultsScreen {
 
         // Instructions
         let instructions = vec![
-            Line::from("↑/↓: Navigate | PgUp/PgDn: Pages | Enter/v: View | d: Download"),
+            Line::from("↑/↓: Navigate | ←/→: Pages | Enter/v: View | d: Download"),
             Line::from("/: New Search | r: Refresh | ESC: Back"),
         ];
 
