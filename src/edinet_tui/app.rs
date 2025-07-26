@@ -228,8 +228,8 @@ impl App {
                 "Main Menu:\n\
                 ↑/↓ - Navigate menu\n\
                 Enter - Select option\n\
-                1 - Database Management\n\
-                2 - Search Documents\n\
+                1 - Search Documents\n\
+                2 - Database Management\n\
                 3 - Help\n\
                 q - Quit"
             }

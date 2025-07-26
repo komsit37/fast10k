@@ -43,16 +43,16 @@ impl MainMenuScreen {
     pub fn new() -> Self {
         let menu_options = vec![
             MenuOption::new(
-                "Database Management",
-                "Manage EDINET document index, update, and statistics",
-                '1',
-                Screen::Database,
-            ),
-            MenuOption::new(
                 "Search Documents",
                 "Search for EDINET documents by symbol, company, date, or type",
-                '2',
+                '1',
                 Screen::Search,
+            ),
+            MenuOption::new(
+                "Database Management",
+                "Manage EDINET document index, update, and statistics",
+                '2',
+                Screen::Database,
             ),
             MenuOption::new(
                 "Help",
