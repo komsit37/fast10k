@@ -12,9 +12,9 @@ use ratatui::{
 };
 
 use crate::{
-    models::{Document, DownloadRequest, DocumentFormat, Source},
     downloader,
-    edinet_tui::{ui::Styles, app::Screen},
+    edinet_tui::{app::Screen, ui::Styles},
+    models::{Document, DocumentFormat, DownloadRequest, Source},
 };
 
 /// Results screen state
@@ -43,14 +43,18 @@ impl ResultsScreen {
     pub fn set_documents(&mut self, documents: Vec<Document>) {
         self.documents = documents;
         self.current_page = 0;
-        self.document_state.select(if self.documents.is_empty() { None } else { Some(0) });
+        self.document_state.select(if self.documents.is_empty() {
+            None
+        } else {
+            Some(0)
+        });
     }
 
     /// Get current page of documents
     fn get_current_page_documents(&self) -> Vec<&Document> {
         let start_idx = self.current_page * self.items_per_page;
         let end_idx = std::cmp::min(start_idx + self.items_per_page, self.documents.len());
-        
+
         if start_idx < self.documents.len() {
             self.documents[start_idx..end_idx].iter().collect()
         } else {
@@ -69,15 +73,18 @@ impl ResultsScreen {
 
     /// Get currently selected document
     pub fn get_selected_document(&self) -> Option<&Document> {
-        self.document_state.selected()
-            .and_then(|idx| {
-                let page_start = self.current_page * self.items_per_page;
-                self.documents.get(page_start + idx)
-            })
+        self.document_state.selected().and_then(|idx| {
+            let page_start = self.current_page * self.items_per_page;
+            self.documents.get(page_start + idx)
+        })
     }
 
     /// Handle key events for the results screen
-    pub async fn handle_event(&mut self, key: KeyEvent, app: &mut super::super::app::App) -> Result<()> {
+    pub async fn handle_event(
+        &mut self,
+        key: KeyEvent,
+        app: &mut super::super::app::App,
+    ) -> Result<()> {
         if self.is_downloading {
             // Only allow cancellation during download
             if let KeyCode::Esc = key.code {
@@ -154,7 +161,8 @@ impl ResultsScreen {
             self.current_page -= 1;
             let new_page_documents = self.get_current_page_documents();
             if !new_page_documents.is_empty() {
-                self.document_state.select(Some(new_page_documents.len() - 1));
+                self.document_state
+                    .select(Some(new_page_documents.len() - 1));
             }
         }
     }
@@ -191,22 +199,34 @@ impl ResultsScreen {
 
     fn go_to_first_page(&mut self) {
         self.current_page = 0;
-        self.document_state.select(if self.documents.is_empty() { None } else { Some(0) });
+        self.document_state.select(if self.documents.is_empty() {
+            None
+        } else {
+            Some(0)
+        });
     }
 
     fn go_to_last_page(&mut self) {
         if self.get_total_pages() > 0 {
             self.current_page = self.get_total_pages() - 1;
             let page_documents = self.get_current_page_documents();
-            self.document_state.select(if page_documents.is_empty() { None } else { Some(0) });
+            self.document_state.select(if page_documents.is_empty() {
+                None
+            } else {
+                Some(0)
+            });
         }
     }
 
     /// Download selected document
-    async fn download_document(&mut self, document: Document, app: &mut super::super::app::App) -> Result<()> {
+    async fn download_document(
+        &mut self,
+        document: Document,
+        app: &mut super::super::app::App,
+    ) -> Result<()> {
         self.is_downloading = true;
         self.download_status = Some(format!("Downloading {}...", document.ticker));
-        
+
         app.set_status(format!("Starting download for {}", document.ticker));
 
         let download_request = DownloadRequest {
@@ -219,7 +239,8 @@ impl ResultsScreen {
             format: DocumentFormat::Complete,
         };
 
-        match downloader::download_documents(&download_request, app.config.download_dir_str()).await {
+        match downloader::download_documents(&download_request, app.config.download_dir_str()).await
+        {
             Ok(count) => {
                 app.set_status(format!("Successfully downloaded {} document(s)", count));
             }
@@ -238,18 +259,18 @@ impl ResultsScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Title with stats
-                Constraint::Min(0),     // Results list
-                Constraint::Length(4),  // Instructions and pagination
+                Constraint::Length(3), // Title with stats
+                Constraint::Min(0),    // Results list
+                Constraint::Length(4), // Instructions and pagination
             ])
             .split(area);
 
         // Draw title and stats
         self.draw_title(f, chunks[0]);
-        
+
         // Draw results list
         self.draw_results_list(f, chunks[1]);
-        
+
         // Draw instructions and pagination
         self.draw_bottom_info(f, chunks[2]);
 
@@ -274,34 +295,36 @@ impl ResultsScreen {
 
     fn draw_results_list(&mut self, f: &mut Frame, area: Rect) {
         let page_documents = self.get_current_page_documents();
-        
+
         if page_documents.is_empty() {
             let empty_message = if self.documents.is_empty() {
                 "No documents found. Try adjusting your search criteria."
             } else {
                 "No documents on this page."
             };
-            
+
             let empty_widget = Paragraph::new(empty_message)
                 .style(Styles::inactive())
-                .block(Block::default()
-                    .title("Results")
-                    .borders(Borders::ALL)
-                    .border_style(Styles::inactive_border()));
+                .block(
+                    Block::default()
+                        .title("Results")
+                        .borders(Borders::ALL)
+                        .border_style(Styles::inactive_border()),
+                );
             f.render_widget(empty_widget, area);
             return;
         }
 
         // Create header
         let header = ListItem::new(Line::from(vec![
-            Span::styled("Date      ", Styles::title()),
+            Span::styled("Date       ", Styles::title()),
             Span::styled("│ Symbol   ", Styles::title()),
-            Span::styled("│ Company                   ", Styles::title()),
+            Span::styled("│ Company                           ", Styles::title()),
             Span::styled("│ Type        ", Styles::title()),
             Span::styled("│ Format     ", Styles::title()),
         ]));
 
-        // Create document items  
+        // Create document items
         let items: Vec<ListItem> = std::iter::once(header)
             .chain(page_documents.iter().enumerate().map(|(i, doc)| {
                 let style = if Some(i) == self.document_state.selected() {
@@ -323,11 +346,12 @@ impl ResultsScreen {
             }))
             .collect();
 
-        let results_list = List::new(items)
-            .block(Block::default()
+        let results_list = List::new(items).block(
+            Block::default()
                 .title("Results")
                 .borders(Borders::ALL)
-                .border_style(Styles::active_border()));
+                .border_style(Styles::active_border()),
+        );
 
         f.render_stateful_widget(results_list, area, &mut self.document_state);
     }
@@ -344,56 +368,62 @@ impl ResultsScreen {
             Line::from("/: New Search | r: Refresh | ESC: Back"),
         ];
 
-        let instructions_widget = Paragraph::new(instructions)
-            .style(Styles::info())
-            .block(Block::default()
+        let instructions_widget = Paragraph::new(instructions).style(Styles::info()).block(
+            Block::default()
                 .title("Instructions")
                 .borders(Borders::ALL)
-                .border_style(Styles::inactive_border()));
+                .border_style(Styles::inactive_border()),
+        );
 
         f.render_widget(instructions_widget, chunks[0]);
 
         // Pagination info
         let current_page = self.current_page + 1;
         let total_pages = self.get_total_pages();
-        let selected_idx = self.document_state.selected()
+        let selected_idx = self
+            .document_state
+            .selected()
             .map(|idx| self.current_page * self.items_per_page + idx + 1)
             .unwrap_or(0);
 
         let pagination_text = if total_pages > 0 {
-            format!("Page {} of {}\nItem {} of {}", 
-                current_page, total_pages, 
-                selected_idx, self.documents.len())
+            format!(
+                "Page {} of {}\nItem {} of {}",
+                current_page,
+                total_pages,
+                selected_idx,
+                self.documents.len()
+            )
         } else {
             "No pages".to_string()
         };
 
-        let pagination_widget = Paragraph::new(pagination_text)
-            .style(Styles::info())
-            .block(Block::default()
+        let pagination_widget = Paragraph::new(pagination_text).style(Styles::info()).block(
+            Block::default()
                 .title("Navigation")
                 .borders(Borders::ALL)
-                .border_style(Styles::inactive_border()));
+                .border_style(Styles::inactive_border()),
+        );
 
         f.render_widget(pagination_widget, chunks[1]);
     }
 
     fn draw_download_status(&self, f: &mut Frame, area: Rect) {
         use crate::edinet_tui::ui::centered_rect;
-        
+
         let popup_area = centered_rect(50, 20, area);
-        
+
         let default_status = "Downloading...".to_string();
-        let status_text = self.download_status
-            .as_ref()
-            .unwrap_or(&default_status);
-        
+        let status_text = self.download_status.as_ref().unwrap_or(&default_status);
+
         let status_widget = Paragraph::new(format!("{}\n\nPress ESC to cancel", status_text))
             .style(Styles::info())
-            .block(Block::default()
-                .title("Download Status")
-                .borders(Borders::ALL)
-                .border_style(Styles::warning()));
+            .block(
+                Block::default()
+                    .title("Download Status")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::warning()),
+            );
 
         f.render_widget(ratatui::widgets::Clear, popup_area);
         f.render_widget(status_widget, popup_area);
@@ -408,3 +438,4 @@ fn truncate_string(s: &str, max_len: usize) -> String {
         format!("{}…", &s[..max_len.saturating_sub(1)])
     }
 }
+
