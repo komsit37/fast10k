@@ -262,12 +262,14 @@ impl App {
             }
             Screen::Viewer => {
                 "Document Viewer:\n\
-                ↑/↓ - Scroll content\n\
-                Page Up/Down - Page scroll\n\
+                ↑/↓ - Scroll content up/down\n\
+                ←/→ - Change document sections\n\
+                Page Up/Down - Large scroll jumps\n\
+                Tab - Switch viewer modes\n\
                 Home/End - Top/Bottom\n\
                 d - Download document\n\
-                s - Save content to file\n\
-                Enter - Open in external viewer"
+                r - Reload content\n\
+                Enter - Load/Download content"
             }
             Screen::Help => {
                 "Help Screen:\n\
@@ -601,31 +603,31 @@ impl App {
                 self.viewer.scroll_offset = 0;
             }
             KeyCode::Up => {
-                match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
-                        if self.viewer.scroll_offset > 0 {
-                            self.viewer.scroll_offset -= 1;
-                        }
-                    }
-                    super::screens::viewer::ViewerMode::Content => {
-                        if self.viewer.content_sections.is_some() && self.viewer.current_section > 0 {
-                            self.viewer.current_section -= 1;
-                            self.viewer.scroll_offset = 0;
-                        }
-                    }
+                // Scroll up in all modes
+                if self.viewer.scroll_offset > 0 {
+                    self.viewer.scroll_offset -= 1;
                 }
             }
             KeyCode::Down => {
-                match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
-                        self.viewer.scroll_offset += 1;
+                // Scroll down in all modes
+                self.viewer.scroll_offset += 1;
+            }
+            KeyCode::Left => {
+                // Previous section in Content mode
+                if self.viewer.mode == super::screens::viewer::ViewerMode::Content {
+                    if self.viewer.content_sections.is_some() && self.viewer.current_section > 0 {
+                        self.viewer.current_section -= 1;
+                        self.viewer.scroll_offset = 0;
                     }
-                    super::screens::viewer::ViewerMode::Content => {
-                        if let Some(ref sections) = self.viewer.content_sections {
-                            if self.viewer.current_section < sections.len() - 1 {
-                                self.viewer.current_section += 1;
-                                self.viewer.scroll_offset = 0;
-                            }
+                }
+            }
+            KeyCode::Right => {
+                // Next section in Content mode
+                if self.viewer.mode == super::screens::viewer::ViewerMode::Content {
+                    if let Some(ref sections) = self.viewer.content_sections {
+                        if self.viewer.current_section < sections.len() - 1 {
+                            self.viewer.current_section += 1;
+                            self.viewer.scroll_offset = 0;
                         }
                     }
                 }
