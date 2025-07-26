@@ -37,6 +37,7 @@ pub struct ViewerScreen {
     pub is_loading: bool,
     pub is_downloading: bool,
     pub download_status: Option<String>,
+    pub is_downloaded: bool,
 }
 
 impl ViewerScreen {
@@ -50,6 +51,7 @@ impl ViewerScreen {
             is_loading: false,
             is_downloading: false,
             download_status: None,
+            is_downloaded: false,
         }
     }
 
@@ -61,6 +63,7 @@ impl ViewerScreen {
         self.content_sections = None;
         self.current_section = 0;
         self.is_loading = false;
+        self.is_downloaded = false; // Will be updated when checked
     }
 
     /// Handle key events for the viewer screen
@@ -233,6 +236,29 @@ impl ViewerScreen {
         Ok(())
     }
 
+    /// Check if document is downloaded
+    pub fn is_document_downloaded(&self, app: &super::super::app::App) -> bool {
+        let document = match &self.current_document {
+            Some(doc) => doc,
+            None => return false,
+        };
+
+        // Check if ZIP file exists in download directory
+        let download_dir = std::path::PathBuf::from(app.config.download_dir_str())
+            .join("edinet")
+            .join(&document.ticker);
+        
+        if let Ok(entries) = std::fs::read_dir(&download_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("zip") {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Download document
     async fn download_document(&mut self, app: &mut super::super::app::App) -> Result<()> {
         let document = match &self.current_document {
@@ -260,6 +286,8 @@ impl ViewerScreen {
                 app.set_status(format!("Successfully downloaded {} document(s)", count));
                 // Clear content sections to force reload
                 self.content_sections = None;
+                // Update download status
+                self.is_downloaded = self.is_document_downloaded(app);
             }
             Err(e) => {
                 app.set_error(format!("Download failed: {}", e));
@@ -492,8 +520,8 @@ impl ViewerScreen {
             Line::from(""),
             Line::from(vec![
                 Span::styled("Status: ", Styles::info()),
-                Span::raw(if document.content_path.exists() {
-                    "Document appears to be downloaded"
+                Span::raw(if self.is_downloaded {
+                    "Document downloaded"
                 } else {
                     "Document not downloaded"
                 }),

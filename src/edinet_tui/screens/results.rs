@@ -219,7 +219,7 @@ impl ResultsScreen {
     }
 
     /// Download selected document
-    async fn download_document(
+    pub async fn download_document(
         &mut self,
         document: Document,
         app: &mut super::super::app::App,
@@ -242,7 +242,11 @@ impl ResultsScreen {
         match downloader::download_documents(&download_request, app.config.download_dir_str()).await
         {
             Ok(count) => {
-                app.set_status(format!("Successfully downloaded {} document(s)", count));
+                app.set_status(format!(
+                    "Successfully downloaded {} document(s) to {}",
+                    count,
+                    app.config.download_dir_str()
+                ));
             }
             Err(e) => {
                 app.set_error(format!("Download failed: {}", e));

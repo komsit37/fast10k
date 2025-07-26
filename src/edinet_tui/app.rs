@@ -462,6 +462,18 @@ impl App {
     }
 
     async fn handle_results_event(&mut self, key: KeyEvent) -> Result<()> {
+        // Handle download cancellation
+        if self.results.is_downloading {
+            if let KeyCode::Esc = key.code {
+                self.results.is_downloading = false;
+                self.results.download_status = None;
+                self.set_status("Download cancelled".to_string());
+                return Ok(());
+            }
+            // Ignore all other keys during download
+            return Ok(());
+        }
+        
         match key.code {
             KeyCode::Up => {
                 self.results.navigate_up();
@@ -486,6 +498,8 @@ impl App {
             KeyCode::Enter | KeyCode::Char('v') => {
                 if let Some(document) = self.results.get_selected_document() {
                     self.viewer.set_document(document.clone());
+                    // Check download status
+                    self.viewer.is_downloaded = self.viewer.is_document_downloaded(self);
                     self.navigate_to_screen(Screen::Viewer);
                 } else {
                     self.set_error("No document selected".to_string());
@@ -496,7 +510,40 @@ impl App {
                 self.navigate_to_screen(Screen::Search);
             }
             KeyCode::Char('d') => {
-                self.set_status("Document download - coming soon".to_string());
+                // Download selected document
+                if let Some(document) = self.results.get_selected_document().cloned() {
+                    self.results.is_downloading = true;
+                    self.results.download_status = Some(format!("Downloading {}...", document.ticker));
+                    self.set_status(format!("Starting download for {}", document.ticker));
+                    
+                    let download_request = crate::models::DownloadRequest {
+                        source: crate::models::Source::Edinet,
+                        ticker: document.ticker.clone(),
+                        filing_type: Some(document.filing_type.clone()),
+                        date_from: Some(document.date),
+                        date_to: Some(document.date),
+                        limit: 1,
+                        format: crate::models::DocumentFormat::Complete,
+                    };
+                    
+                    match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
+                        Ok(count) => {
+                            self.set_status(format!(
+                                "Successfully downloaded {} document(s) to {}",
+                                count,
+                                self.config.download_dir_str()
+                            ));
+                        }
+                        Err(e) => {
+                            self.set_error(format!("Download failed: {}", e));
+                        }
+                    }
+                    
+                    self.results.is_downloading = false;
+                    self.results.download_status = None;
+                } else {
+                    self.set_error("No document selected".to_string());
+                }
             }
             KeyCode::Char('/') => {
                 self.navigate_to_screen(Screen::Search);
@@ -544,7 +591,35 @@ impl App {
                 self.navigate_to_screen(Screen::Results);
             }
             KeyCode::Char('d') => {
-                self.set_status("Document download - coming soon".to_string());
+                // Download current document being viewed
+                if let Some(document) = self.viewer.current_document.clone() {
+                    self.set_status(format!("Starting download for {}", document.ticker));
+                    // Use the same download functionality as results screen
+                    let download_request = crate::models::DownloadRequest {
+                        source: crate::models::Source::Edinet,
+                        ticker: document.ticker.clone(),
+                        filing_type: Some(document.filing_type.clone()),
+                        date_from: Some(document.date),
+                        date_to: Some(document.date),
+                        limit: 1,
+                        format: crate::models::DocumentFormat::Complete,
+                    };
+                    
+                    match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
+                        Ok(count) => {
+                            self.set_status(format!(
+                                "Successfully downloaded {} document(s) to {}",
+                                count,
+                                self.config.download_dir_str()
+                            ));
+                        }
+                        Err(e) => {
+                            self.set_error(format!("Download failed: {}", e));
+                        }
+                    }
+                } else {
+                    self.set_error("No document loaded in viewer".to_string());
+                }
             }
             _ => {}
         }
