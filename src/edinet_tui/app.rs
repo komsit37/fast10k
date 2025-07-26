@@ -1,7 +1,7 @@
 //! Main TUI application state and logic
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -11,6 +11,8 @@ use ratatui::{
 };
 
 use crate::config::Config;
+use crate::models::{SearchQuery, Source, FilingType};
+use crate::storage;
 use super::screens::*;
 
 /// Application screens
@@ -107,7 +109,10 @@ impl App {
                     self.show_help_popup = false;
                     return Ok(());
                 }
-                // ESC goes back to previous screen or main menu
+                return Ok(());
+            }
+            KeyCode::Backspace => {
+                // Backspace goes back to previous screen or main menu
                 if let Some(prev) = self.previous_screen.clone() {
                     self.navigate_to_screen(prev);
                 } else if self.current_screen != Screen::MainMenu {
@@ -117,7 +122,7 @@ impl App {
                 }
                 return Ok(());
             }
-            KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            KeyCode::Char('q') => {
                 self.should_quit = true;
                 return Ok(());
             }
@@ -175,7 +180,7 @@ impl App {
         } else if let Some(ref err) = self.error_message {
             format!("Error: {}", err)
         } else {
-            format!("EDINET TUI - {} | ESC: Back | Ctrl+Q: Quit | F1/?:Help", 
+            format!("EDINET TUI - {} | Backspace: Back | Q: Quit | F1/?:Help", 
                 match self.current_screen {
                     Screen::MainMenu => "Main Menu",
                     Screen::Database => "Database Management", 
@@ -222,9 +227,10 @@ impl App {
     /// Get context-sensitive help content
     fn get_context_help(&self) -> String {
         let global_help = "Global Shortcuts:\n\
-            ESC - Go back / Main menu\n\
-            Ctrl+Q - Quit application\n\
-            F1 / ? - Toggle this help\n\n";
+            Backspace - Go back / Main menu\n\
+            Q - Quit application\n\
+            F1 / ? - Toggle this help\n\
+            ESC - Close help popup\n\n";
 
         let screen_help = match self.current_screen {
             Screen::MainMenu => "Main Menu:\n\
@@ -419,13 +425,15 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                self.set_status("Search functionality - coming soon".to_string());
+                // Execute search
+                self.execute_search().await?;
             }
             KeyCode::Char(c) => {
                 self.search.handle_char_input(c);
             }
             KeyCode::Backspace => {
                 self.search.handle_backspace();
+                return Ok(());
             }
             _ => {}
         }
@@ -451,7 +459,12 @@ impl App {
                 self.set_status("Next page".to_string());
             }
             KeyCode::Enter | KeyCode::Char('v') => {
-                self.set_status("Document viewer - coming soon".to_string());
+                if let Some(document) = self.results.get_selected_document() {
+                    self.viewer.set_document(document.clone());
+                    self.navigate_to_screen(Screen::Viewer);
+                } else {
+                    self.set_error("No document selected".to_string());
+                }
             }
             KeyCode::Char('d') => {
                 self.set_status("Document download - coming soon".to_string());
@@ -526,6 +539,110 @@ impl App {
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    /// Execute search with current form values
+    async fn execute_search(&mut self) -> Result<()> {
+        use chrono::NaiveDate;
+
+        // Validate date inputs
+        if !self.search.date_from_input.is_empty() {
+            if NaiveDate::parse_from_str(&self.search.date_from_input.value, "%Y-%m-%d").is_err() {
+                self.set_error("Invalid 'Date From' format. Please use YYYY-MM-DD".to_string());
+                return Ok(());
+            }
+        }
+        
+        if !self.search.date_to_input.is_empty() {
+            if NaiveDate::parse_from_str(&self.search.date_to_input.value, "%Y-%m-%d").is_err() {
+                self.set_error("Invalid 'Date To' format. Please use YYYY-MM-DD".to_string());
+                return Ok(());
+            }
+        }
+
+        // Build search query
+        let search_query = SearchQuery {
+            ticker: if self.search.ticker_input.is_empty() { 
+                None 
+            } else { 
+                Some(self.search.ticker_input.value.clone()) 
+            },
+            company_name: if self.search.company_input.is_empty() { 
+                None 
+            } else { 
+                Some(self.search.company_input.value.clone()) 
+            },
+            filing_type: self.search.filing_type_list.selected().cloned(),
+            source: Some(Source::Edinet),
+            date_from: if self.search.date_from_input.is_empty() { 
+                None 
+            } else { 
+                NaiveDate::parse_from_str(&self.search.date_from_input.value, "%Y-%m-%d").ok() 
+            },
+            date_to: if self.search.date_to_input.is_empty() { 
+                None 
+            } else { 
+                NaiveDate::parse_from_str(&self.search.date_to_input.value, "%Y-%m-%d").ok() 
+            },
+            text_query: if self.search.text_query_input.is_empty() { 
+                None 
+            } else { 
+                Some(self.search.text_query_input.value.clone()) 
+            },
+        };
+
+        // Check if search has any criteria
+        if search_query.ticker.is_none() 
+            && search_query.company_name.is_none()
+            && search_query.filing_type.is_none()
+            && search_query.date_from.is_none() 
+            && search_query.date_to.is_none()
+            && search_query.text_query.is_none() {
+            self.set_error("Please enter at least one search criteria".to_string());
+            return Ok(());
+        }
+
+        self.set_status("Searching documents...".to_string());
+
+        // Debug: Log the search query in app.rs too  
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+            writeln!(file, "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
+                search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source).ok();
+        }
+        eprintln!("App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
+            search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source);
+
+        match storage::search_documents(&search_query, self.config.database_path_str(), 100).await {
+            Ok(documents) => {
+                // Debug: Log search results
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+                    writeln!(file, "Search completed: found {} documents", documents.len()).ok();
+                    for (i, doc) in documents.iter().take(3).enumerate() {
+                        writeln!(file, "Doc {}: {} {} {}", i+1, doc.ticker, doc.company_name, doc.filing_type.as_str()).ok();
+                    }
+                }
+                
+                self.set_status(format!("Found {} documents", documents.len()));
+                
+                // Store results in the results screen
+                self.results.set_documents(documents);
+                self.search.last_query = Some(search_query);
+                
+                // Navigate to results screen
+                self.navigate_to_screen(Screen::Results);
+            }
+            Err(e) => {
+                // Debug: Log search error
+                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+                    writeln!(file, "Search failed with error: {}", e).ok();
+                }
+                self.set_error(format!("Search failed: {}", e));
+            }
+        }
+
         Ok(())
     }
 }

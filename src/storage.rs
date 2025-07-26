@@ -143,6 +143,16 @@ impl Storage {
         let order_clause = " ORDER BY date DESC";
         let limit_clause = format!(" LIMIT {}", limit);
         
+        // Debug: Log the final SQL query
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+            writeln!(file, "SQL Query: {}{}{}{}", base_query, where_clause, order_clause, limit_clause).ok();
+            writeln!(file, "Query params: {:?}", params).ok();
+        }
+        eprintln!("SQL Query: {}{}{}{}", base_query, where_clause, order_clause, limit_clause);
+        eprintln!("Query params: {:?}", params);
+        
         let sql = format!("{}{}{}{}", base_query, where_clause, order_clause, limit_clause);
         
         // Execute query with parameters

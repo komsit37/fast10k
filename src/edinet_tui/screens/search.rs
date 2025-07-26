@@ -98,7 +98,11 @@ impl SearchScreen {
             text_query_input: InputField::new("Text Search")
                 .with_placeholder("Search in document content"),
             
-            filing_type_list: SelectableList::new(filing_types),
+            filing_type_list: {
+                let mut list = SelectableList::new(filing_types);
+                list.select(None); // No filing type selected by default
+                list
+            },
             show_filing_dropdown: false,
             
             is_searching: false,
@@ -213,8 +217,12 @@ impl SearchScreen {
     }
 
     pub fn handle_char_input(&mut self, c: char) {
+        eprintln!("Handling char input '{}' for field {:?}", c, self.fields[self.current_field]);
         match self.fields[self.current_field] {
-            SearchField::Ticker => self.ticker_input.insert_char(c),
+            SearchField::Ticker => {
+                self.ticker_input.insert_char(c);
+                eprintln!("Ticker input now: '{}'", self.ticker_input.value);
+            },
             SearchField::CompanyName => self.company_input.insert_char(c),
             SearchField::DateFrom => self.date_from_input.insert_char(c),
             SearchField::DateTo => self.date_to_input.insert_char(c),
@@ -324,6 +332,16 @@ impl SearchScreen {
             },
             text_query: if self.text_query_input.is_empty() { None } else { Some(self.text_query_input.value.clone()) },
         };
+
+        // Debug: Log the search query
+        use std::fs::OpenOptions;
+        use std::io::Write;
+        if let Ok(mut file) = OpenOptions::new().create(true).append(true).open("tui_debug.log") {
+            writeln!(file, "TUI Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
+                search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source).ok();
+        }
+        eprintln!("TUI Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}", 
+            search_query.ticker, search_query.company_name, search_query.filing_type, search_query.source);
 
         // Check if search has any criteria
         if search_query.ticker.is_none() 
