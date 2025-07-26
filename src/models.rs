@@ -23,6 +23,11 @@ pub enum FilingType {
     EightK,
     Transcript,
     PressRelease,
+    // EDINET-specific filing types
+    AnnualSecuritiesReport,         // 有価証券報告書
+    QuarterlySecuritiesReport,      // 四半期報告書  
+    SemiAnnualSecuritiesReport,     // 半期報告書
+    ExtraordinaryReport,            // 臨時報告書
     Other(String),
 }
 
@@ -34,6 +39,10 @@ impl FilingType {
             FilingType::EightK => "8-K",
             FilingType::Transcript => "Transcript",
             FilingType::PressRelease => "Press Release",
+            FilingType::AnnualSecuritiesReport => "Annual Securities Report",
+            FilingType::QuarterlySecuritiesReport => "Quarterly Securities Report",
+            FilingType::SemiAnnualSecuritiesReport => "Semi-Annual Securities Report",
+            FilingType::ExtraordinaryReport => "Extraordinary Report",
             FilingType::Other(s) => s,
         }
     }

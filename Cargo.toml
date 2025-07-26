@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "edinet"
 path = "src/bin/edinet.rs"
 
+[[bin]]
+name = "edinet-tui"
+path = "src/bin/edinet_tui.rs"
+
 [dependencies]
 # CLI framework
 clap = { version = "4.0", features = ["derive"] }
