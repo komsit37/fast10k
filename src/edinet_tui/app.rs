@@ -653,59 +653,9 @@ impl App {
 
         self.set_status("Searching documents...".to_string());
 
-        // Debug: Log the search query in app.rs too
-        use std::fs::OpenOptions;
-        use std::io::Write;
-        if let Ok(mut file) = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open("tui_debug.log")
-        {
-            writeln!(
-                file,
-                "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}",
-                search_query.ticker,
-                search_query.company_name,
-                search_query.filing_type,
-                search_query.source
-            )
-            .ok();
-        }
-        eprintln!(
-            "App Search Query: ticker={:?}, company={:?}, filing_type={:?}, source={:?}",
-            search_query.ticker,
-            search_query.company_name,
-            search_query.filing_type,
-            search_query.source
-        );
 
         match storage::search_documents(&search_query, self.config.database_path_str(), 100).await {
             Ok(documents) => {
-                // Debug: Log search results
-                if let Ok(mut file) = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("tui_debug.log")
-                {
-                    writeln!(
-                        file,
-                        "Search completed: found {} documents",
-                        documents.len()
-                    )
-                    .ok();
-                    for (i, doc) in documents.iter().take(3).enumerate() {
-                        writeln!(
-                            file,
-                            "Doc {}: {} {} {}",
-                            i + 1,
-                            doc.ticker,
-                            doc.company_name,
-                            doc.filing_type.as_str()
-                        )
-                        .ok();
-                    }
-                }
-
                 self.set_status(format!("Found {} documents", documents.len()));
 
                 // Store results in the results screen
@@ -716,14 +666,6 @@ impl App {
                 self.navigate_to_screen(Screen::Results);
             }
             Err(e) => {
-                // Debug: Log search error
-                if let Ok(mut file) = OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open("tui_debug.log")
-                {
-                    writeln!(file, "Search failed with error: {}", e).ok();
-                }
                 self.set_error(format!("Search failed: {}", e));
             }
         }

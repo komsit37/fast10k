@@ -294,14 +294,14 @@ impl ResultsScreen {
 
         // Create header
         let header = ListItem::new(Line::from(vec![
-            Span::styled("Date       ", Styles::title()),
-            Span::styled("│ Symbol    ", Styles::title()),
-            Span::styled("│ Company                     ", Styles::title()),
+            Span::styled("Date      ", Styles::title()),
+            Span::styled("│ Symbol   ", Styles::title()),
+            Span::styled("│ Company                   ", Styles::title()),
             Span::styled("│ Type        ", Styles::title()),
-            Span::styled("│ Format", Styles::title()),
+            Span::styled("│ Format     ", Styles::title()),
         ]));
 
-        // Create document items
+        // Create document items  
         let items: Vec<ListItem> = std::iter::once(header)
             .chain(page_documents.iter().enumerate().map(|(i, doc)| {
                 let style = if Some(i) == self.document_state.selected() {
@@ -311,12 +311,12 @@ impl ResultsScreen {
                 };
 
                 let content = format!(
-                    "{} │ {:8} │ {:25} │ {:11} │ {}",
+                    "{} │ {:8} │ {:25} │ {:11} │ {:10}",
                     doc.date,
                     truncate_string(&doc.ticker, 8),
                     truncate_string(&doc.company_name, 25),
                     truncate_string(doc.filing_type.as_str(), 11),
-                    doc.format.as_str()
+                    truncate_string(doc.format.as_str(), 10)
                 );
 
                 ListItem::new(Line::from(Span::styled(content, style)))
