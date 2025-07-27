@@ -738,7 +738,7 @@ impl App {
                     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                         // Only load files that exactly match the document ID
                         if filename.contains(doc_id) {
-                            match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), 20, 1000) {
+                            match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), usize::MAX, usize::MAX) {
                                 Ok(sections) => {
                                     self.viewer.content_sections = Some(sections);
                                     self.viewer.current_section = 0;

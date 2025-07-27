@@ -212,7 +212,7 @@ impl ViewerScreen {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().and_then(|s| s.to_str()) == Some("zip") {
-                    match read_edinet_zip(path.to_str().unwrap(), 20, 1000) {
+                    match read_edinet_zip(path.to_str().unwrap(), usize::MAX, usize::MAX) {
                         Ok(sections) => {
                             self.content_sections = Some(sections);
                             self.current_section = 0;
