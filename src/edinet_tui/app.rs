@@ -493,7 +493,7 @@ impl App {
             // Ignore all other keys during download
             return Ok(());
         }
-        
+
         match key.code {
             KeyCode::Up => {
                 self.results.navigate_up();
@@ -533,9 +533,10 @@ impl App {
                 // Download selected document
                 if let Some(document) = self.results.get_selected_document().cloned() {
                     self.results.is_downloading = true;
-                    self.results.download_status = Some(format!("Downloading {}...", document.ticker));
+                    self.results.download_status =
+                        Some(format!("Downloading {}...", document.ticker));
                     self.set_status(format!("Starting download for {}", document.ticker));
-                    
+
                     let download_request = crate::models::DownloadRequest {
                         source: crate::models::Source::Edinet,
                         ticker: document.ticker.clone(),
@@ -545,8 +546,13 @@ impl App {
                         limit: 1,
                         format: crate::models::DocumentFormat::Complete,
                     };
-                    
-                    match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
+
+                    match crate::downloader::download_documents(
+                        &download_request,
+                        self.config.download_dir_str(),
+                    )
+                    .await
+                    {
                         Ok(count) => {
                             self.set_status(format!(
                                 "Successfully downloaded {} document(s) to {}",
@@ -558,7 +564,7 @@ impl App {
                             self.set_error(format!("Download failed: {}", e));
                         }
                     }
-                    
+
                     self.results.is_downloading = false;
                     self.results.download_status = None;
                 } else {
@@ -596,11 +602,14 @@ impl App {
 
         match key.code {
             KeyCode::Tab => {
-                // Switch between modes
+                // Switch between Info and Content modes
                 self.viewer.mode = match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info => super::screens::viewer::ViewerMode::Content,
-                    super::screens::viewer::ViewerMode::Content => super::screens::viewer::ViewerMode::Download,
-                    super::screens::viewer::ViewerMode::Download => super::screens::viewer::ViewerMode::Info,
+                    super::screens::viewer::ViewerMode::Info => {
+                        super::screens::viewer::ViewerMode::Content
+                    }
+                    super::screens::viewer::ViewerMode::Content => {
+                        super::screens::viewer::ViewerMode::Info
+                    }
                 };
                 self.viewer.scroll_offset = 0;
             }
@@ -637,23 +646,19 @@ impl App {
                     }
                 }
             }
-            KeyCode::PageUp => {
-                match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
-                        self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
-                    }
-                    super::screens::viewer::ViewerMode::Content => {
-                        self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
-                    }
+            KeyCode::PageUp => match self.viewer.mode {
+                super::screens::viewer::ViewerMode::Info => {
+                    self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
                 }
-            }
+                super::screens::viewer::ViewerMode::Content => {
+                    self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(10);
+                }
+            },
             KeyCode::PageDown => {
                 // Page down with bounds checking
                 let max_scroll = self.calculate_max_scroll_offset();
-                self.viewer.scroll_offset = std::cmp::min(
-                    self.viewer.scroll_offset + 10, 
-                    max_scroll
-                );
+                self.viewer.scroll_offset =
+                    std::cmp::min(self.viewer.scroll_offset + 10, max_scroll);
             }
             KeyCode::Home => {
                 self.viewer.scroll_offset = 0;
@@ -675,10 +680,6 @@ impl App {
                         // Load content if not already loaded
                         self.load_viewer_content().await?;
                     }
-                    super::screens::viewer::ViewerMode::Download => {
-                        // Download document
-                        self.download_viewer_document().await?;
-                    }
                     super::screens::viewer::ViewerMode::Info => {
                         // Switch to content view
                         self.viewer.mode = super::screens::viewer::ViewerMode::Content;
@@ -691,10 +692,8 @@ impl App {
                 if key.modifiers.contains(KeyModifiers::CONTROL) {
                     let page_size = self.calculate_page_size();
                     let max_scroll = self.calculate_max_scroll_offset();
-                    self.viewer.scroll_offset = std::cmp::min(
-                        self.viewer.scroll_offset + page_size,
-                        max_scroll
-                    );
+                    self.viewer.scroll_offset =
+                        std::cmp::min(self.viewer.scroll_offset + page_size, max_scroll);
                     self.set_status("Scroll down one page".to_string());
                 } else {
                     // Regular 'd' - Download document
@@ -773,7 +772,9 @@ impl App {
         self.set_status("Loading document content...".to_string());
 
         // Get the document ID from metadata for precise matching
-        let doc_id = document.metadata.get("doc_id")
+        let doc_id = document
+            .metadata
+            .get("doc_id")
             .or_else(|| document.metadata.get("document_id"))
             .unwrap_or(&document.id);
 
@@ -789,7 +790,11 @@ impl App {
                     if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
                         // Only load files that exactly match the document ID
                         if filename.contains(doc_id) {
-                            match crate::edinet::reader::read_edinet_zip(path.to_str().unwrap(), usize::MAX, usize::MAX) {
+                            match crate::edinet::reader::read_edinet_zip(
+                                path.to_str().unwrap(),
+                                usize::MAX,
+                                usize::MAX,
+                            ) {
                                 Ok(sections) => {
                                     self.viewer.content_sections = Some(sections);
                                     self.viewer.current_section = 0;
@@ -798,7 +803,10 @@ impl App {
                                     return Ok(());
                                 }
                                 Err(e) => {
-                                    self.set_error(format!("Failed to read document {}: {}", doc_id, e));
+                                    self.set_error(format!(
+                                        "Failed to read document {}: {}",
+                                        doc_id, e
+                                    ));
                                     self.viewer.is_loading = false;
                                     return Ok(());
                                 }
@@ -824,7 +832,7 @@ impl App {
 
         self.viewer.is_downloading = true;
         self.viewer.download_status = Some(format!("Downloading {}...", document.ticker));
-        
+
         self.set_status(format!("Starting download for {}", document.ticker));
 
         let download_request = crate::models::DownloadRequest {
@@ -837,7 +845,12 @@ impl App {
             format: crate::models::DocumentFormat::Complete,
         };
 
-        match crate::downloader::download_documents(&download_request, self.config.download_dir_str()).await {
+        match crate::downloader::download_documents(
+            &download_request,
+            self.config.download_dir_str(),
+        )
+        .await
+        {
             Ok(count) => {
                 self.set_status(format!("Successfully downloaded {} document(s)", count));
                 // Clear content sections to force reload
@@ -957,7 +970,6 @@ impl App {
 
         self.set_status("Searching documents...".to_string());
 
-
         match storage::search_documents(&search_query, self.config.database_path_str(), 100).await {
             Ok(documents) => {
                 self.set_status(format!("Found {} documents", documents.len()));
@@ -994,11 +1006,11 @@ impl App {
                         let header_lines = 4; // Section, File, Size, blank line
                         let content_lines = current_section.content.lines().count();
                         let total_lines = header_lines + content_lines;
-                        
+
                         // Estimate available display height (subtract borders and UI elements)
                         // This is a rough estimate - in practice, the terminal height varies
                         let available_height = 20; // Conservative estimate for content area
-                        
+
                         if total_lines > available_height {
                             total_lines - available_height
                         } else {
@@ -1012,21 +1024,11 @@ impl App {
                 }
             }
             super::screens::viewer::ViewerMode::Info => {
-                // Info mode has a fixed set of lines
-                let info_lines = 15; // Approximate number of info lines
+                // Info mode has a variable number of lines (basic info + metadata + download info)
+                let info_lines = 25; // Increased to account for download status and ZIP contents
                 let available_height = 20;
                 if info_lines > available_height {
                     info_lines - available_height
-                } else {
-                    0
-                }
-            }
-            super::screens::viewer::ViewerMode::Download => {
-                // Download mode has a fixed set of lines
-                let download_lines = 12; // Approximate number of download info lines
-                let available_height = 20;
-                if download_lines > available_height {
-                    download_lines - available_height
                 } else {
                     0
                 }
@@ -1055,4 +1057,3 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         ])
         .split(popup_layout[1])[1]
 }
-

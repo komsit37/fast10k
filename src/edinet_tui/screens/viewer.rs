@@ -13,18 +13,17 @@ use ratatui::{
 use std::path::PathBuf;
 
 use crate::{
-    models::{Document, DownloadRequest, DocumentFormat, Source},
     downloader,
     edinet::reader::{read_edinet_zip, DocumentSection},
     edinet_tui::ui::Styles,
+    models::{Document, DocumentFormat, DownloadRequest, Source},
 };
 
 /// Document viewer mode
 #[derive(Debug, Clone, PartialEq)]
 pub enum ViewerMode {
-    Info,      // Document metadata
-    Content,   // Document content sections
-    Download,  // Download options
+    Info,    // Document metadata
+    Content, // Document content sections
 }
 
 /// Document viewer screen state
@@ -69,7 +68,11 @@ impl ViewerScreen {
     }
 
     /// Handle key events for the viewer screen
-    pub async fn handle_event(&mut self, key: KeyEvent, app: &mut super::super::app::App) -> Result<()> {
+    pub async fn handle_event(
+        &mut self,
+        key: KeyEvent,
+        app: &mut super::super::app::App,
+    ) -> Result<()> {
         if self.is_downloading {
             // Only allow cancellation during download
             if let KeyCode::Esc = key.code {
@@ -85,61 +88,52 @@ impl ViewerScreen {
                 // Switch between modes
                 self.mode = match self.mode {
                     ViewerMode::Info => ViewerMode::Content,
-                    ViewerMode::Content => ViewerMode::Download,
-                    ViewerMode::Download => ViewerMode::Info,
+                    ViewerMode::Content => ViewerMode::Info,
                 };
                 self.scroll_offset = 0;
             }
-            KeyCode::Up => {
-                match self.mode {
-                    ViewerMode::Info | ViewerMode::Download => {
-                        if self.scroll_offset > 0 {
-                            self.scroll_offset -= 1;
-                        }
+            KeyCode::Up => match self.mode {
+                ViewerMode::Info => {
+                    if self.scroll_offset > 0 {
+                        self.scroll_offset -= 1;
                     }
-                    ViewerMode::Content => {
-                        if self.content_sections.is_some() && self.current_section > 0 {
-                            self.current_section -= 1;
+                }
+                ViewerMode::Content => {
+                    if self.content_sections.is_some() && self.current_section > 0 {
+                        self.current_section -= 1;
+                        self.scroll_offset = 0;
+                    }
+                }
+            },
+            KeyCode::Down => match self.mode {
+                ViewerMode::Info => {
+                    self.scroll_offset += 1;
+                }
+                ViewerMode::Content => {
+                    if let Some(ref sections) = self.content_sections {
+                        if self.current_section < sections.len() - 1 {
+                            self.current_section += 1;
                             self.scroll_offset = 0;
                         }
                     }
                 }
-            }
-            KeyCode::Down => {
-                match self.mode {
-                    ViewerMode::Info | ViewerMode::Download => {
-                        self.scroll_offset += 1;
-                    }
-                    ViewerMode::Content => {
-                        if let Some(ref sections) = self.content_sections {
-                            if self.current_section < sections.len() - 1 {
-                                self.current_section += 1;
-                                self.scroll_offset = 0;
-                            }
-                        }
-                    }
+            },
+            KeyCode::PageUp => match self.mode {
+                ViewerMode::Info => {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(10);
                 }
-            }
-            KeyCode::PageUp => {
-                match self.mode {
-                    ViewerMode::Info | ViewerMode::Download => {
-                        self.scroll_offset = self.scroll_offset.saturating_sub(10);
-                    }
-                    ViewerMode::Content => {
-                        self.scroll_offset = self.scroll_offset.saturating_sub(10);
-                    }
+                ViewerMode::Content => {
+                    self.scroll_offset = self.scroll_offset.saturating_sub(10);
                 }
-            }
-            KeyCode::PageDown => {
-                match self.mode {
-                    ViewerMode::Info | ViewerMode::Download => {
-                        self.scroll_offset += 10;
-                    }
-                    ViewerMode::Content => {
-                        self.scroll_offset += 10;
-                    }
+            },
+            KeyCode::PageDown => match self.mode {
+                ViewerMode::Info => {
+                    self.scroll_offset += 10;
                 }
-            }
+                ViewerMode::Content => {
+                    self.scroll_offset += 10;
+                }
+            },
             KeyCode::Home => {
                 self.scroll_offset = 0;
                 if self.mode == ViewerMode::Content {
@@ -159,10 +153,6 @@ impl ViewerScreen {
                     ViewerMode::Content => {
                         // Load content if not already loaded
                         self.load_document_content(app).await?;
-                    }
-                    ViewerMode::Download => {
-                        // Download document
-                        self.download_document(app).await?;
                     }
                     ViewerMode::Info => {
                         // Switch to content view
@@ -246,7 +236,9 @@ impl ViewerScreen {
         };
 
         // Get the document ID from metadata for precise matching
-        let doc_id = document.metadata.get("doc_id")
+        let doc_id = document
+            .metadata
+            .get("doc_id")
             .or_else(|| document.metadata.get("document_id"))
             .unwrap_or(&document.id);
 
@@ -254,7 +246,7 @@ impl ViewerScreen {
         let download_dir = std::path::PathBuf::from(app.config.download_dir_str())
             .join("edinet")
             .join(&document.ticker);
-        
+
         if let Ok(entries) = std::fs::read_dir(&download_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -280,7 +272,7 @@ impl ViewerScreen {
 
         self.is_downloading = true;
         self.download_status = Some(format!("Downloading {}...", document.ticker));
-        
+
         app.set_status(format!("Starting download for {}", document.ticker));
 
         let download_request = DownloadRequest {
@@ -293,7 +285,8 @@ impl ViewerScreen {
             format: DocumentFormat::Complete,
         };
 
-        match downloader::download_documents(&download_request, app.config.download_dir_str()).await {
+        match downloader::download_documents(&download_request, app.config.download_dir_str()).await
+        {
             Ok(count) => {
                 app.set_status(format!("Successfully downloaded {} document(s)", count));
                 // Clear content sections to force reload
@@ -321,22 +314,21 @@ impl ViewerScreen {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Title
-                Constraint::Min(0),     // Content
-                Constraint::Length(3),  // Mode selector/instructions
+                Constraint::Length(3), // Title
+                Constraint::Min(0),    // Content
+                Constraint::Length(3), // Mode selector/instructions
             ])
             .split(area);
 
         // Draw title
         self.draw_title(f, chunks[0]);
-        
+
         // Draw content based on mode
         match self.mode {
             ViewerMode::Info => self.draw_info_mode(f, chunks[1]),
             ViewerMode::Content => self.draw_content_mode(f, chunks[1]),
-            ViewerMode::Download => self.draw_download_mode(f, chunks[1]),
         }
-        
+
         // Draw mode selector and instructions
         self.draw_bottom_bar(f, chunks[2]);
 
@@ -349,19 +341,20 @@ impl ViewerScreen {
     fn draw_no_document(&self, f: &mut Frame, area: Rect) {
         let message = Paragraph::new("No document selected\n\nPress ESC to go back")
             .style(Styles::inactive())
-            .block(Block::default()
-                .title("Document Viewer")
-                .borders(Borders::ALL)
-                .border_style(Styles::inactive_border()));
+            .block(
+                Block::default()
+                    .title("Document Viewer")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::inactive_border()),
+            );
         f.render_widget(message, area);
     }
 
     fn draw_title(&self, f: &mut Frame, area: Rect) {
         let document = self.current_document.as_ref().unwrap();
-        let title_text = format!("{} - {} ({})", 
-            document.ticker, 
-            document.company_name, 
-            document.date
+        let title_text = format!(
+            "{} - {} ({})",
+            document.ticker, document.company_name, document.date
         );
 
         let title = Paragraph::new(title_text)
@@ -372,7 +365,7 @@ impl ViewerScreen {
 
     fn draw_info_mode(&self, f: &mut Frame, area: Rect) {
         let document = self.current_document.as_ref().unwrap();
-        
+
         let info_lines = vec![
             Line::from(vec![
                 Span::styled("Ticker: ", Styles::info()),
@@ -420,16 +413,15 @@ impl ViewerScreen {
         self.add_download_info(&mut all_lines, document);
 
         // Apply scrolling
-        let visible_lines: Vec<Line> = all_lines
-            .into_iter()
-            .skip(self.scroll_offset)
-            .collect();
+        let visible_lines: Vec<Line> = all_lines.into_iter().skip(self.scroll_offset).collect();
 
         let info_widget = Paragraph::new(visible_lines)
-            .block(Block::default()
-                .title("Document Information")
-                .borders(Borders::ALL)
-                .border_style(Styles::active_border()))
+            .block(
+                Block::default()
+                    .title("Document Information")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::active_border()),
+            )
             .wrap(Wrap { trim: true });
 
         f.render_widget(info_widget, area);
@@ -440,16 +432,18 @@ impl ViewerScreen {
             if sections.is_empty() {
                 let empty_widget = Paragraph::new("No content sections found")
                     .style(Styles::inactive())
-                    .block(Block::default()
-                        .title("Document Content")
-                        .borders(Borders::ALL)
-                        .border_style(Styles::active_border()));
+                    .block(
+                        Block::default()
+                            .title("Document Content")
+                            .borders(Borders::ALL)
+                            .border_style(Styles::active_border()),
+                    );
                 f.render_widget(empty_widget, area);
                 return;
             }
 
             let current_section = &sections[self.current_section];
-            
+
             let content_lines = vec![
                 Line::from(vec![
                     Span::styled("Section: ", Styles::info()),
@@ -473,31 +467,29 @@ impl ViewerScreen {
             }
 
             // Apply scrolling
-            let visible_lines: Vec<Line> = all_lines
-                .into_iter()
-                .skip(self.scroll_offset)
-                .collect();
+            let visible_lines: Vec<Line> = all_lines.into_iter().skip(self.scroll_offset).collect();
 
-            let title = format!("Content ({}/{})", 
-                self.current_section + 1, 
-                sections.len()
-            );
+            let title = format!("Content ({}/{})", self.current_section + 1, sections.len());
 
             let content_widget = Paragraph::new(visible_lines)
-                .block(Block::default()
-                    .title(title)
-                    .borders(Borders::ALL)
-                    .border_style(Styles::active_border()))
+                .block(
+                    Block::default()
+                        .title(title)
+                        .borders(Borders::ALL)
+                        .border_style(Styles::active_border()),
+                )
                 .wrap(Wrap { trim: true });
 
             f.render_widget(content_widget, area);
         } else if self.is_loading {
             let loading_widget = Paragraph::new("Loading content...")
                 .style(Styles::info())
-                .block(Block::default()
-                    .title("Document Content")
-                    .borders(Borders::ALL)
-                    .border_style(Styles::active_border()));
+                .block(
+                    Block::default()
+                        .title("Document Content")
+                        .borders(Borders::ALL)
+                        .border_style(Styles::active_border()),
+                );
             f.render_widget(loading_widget, area);
         } else {
             // Check if document is downloaded and provide appropriate message
@@ -507,71 +499,27 @@ impl ViewerScreen {
                 "Press Enter to load content\n\nNote: Document must be downloaded first"
             };
 
-            let message_widget = Paragraph::new(message)
-                .style(Styles::inactive())
-                .block(Block::default()
+            let message_widget = Paragraph::new(message).style(Styles::inactive()).block(
+                Block::default()
                     .title("Document Content")
                     .borders(Borders::ALL)
-                    .border_style(Styles::active_border()));
+                    .border_style(Styles::active_border()),
+            );
             f.render_widget(message_widget, area);
         }
-    }
-
-    fn draw_download_mode(&self, f: &mut Frame, area: Rect) {
-        let document = self.current_document.as_ref().unwrap();
-        
-        let download_info = vec![
-            Line::from(vec![
-                Span::styled("Document: ", Styles::info()),
-                Span::raw(format!("{} - {}", document.ticker, document.company_name)),
-            ]),
-            Line::from(vec![
-                Span::styled("Type: ", Styles::info()),
-                Span::raw(document.filing_type.as_str()),
-            ]),
-            Line::from(vec![
-                Span::styled("Date: ", Styles::info()),
-                Span::raw(document.date.to_string()),
-            ]),
-            Line::from(""),
-            Line::from("Download Options:"),
-            Line::from(""),
-            Line::from("• Press Enter or 'd' to download complete document"),
-            Line::from("• Files will be saved to the downloads directory"),
-            Line::from("• EDINET documents are downloaded as ZIP files"),
-            Line::from("• Content can be viewed after download"),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("Status: ", Styles::info()),
-                Span::raw(if self.is_downloaded {
-                    "Document downloaded"
-                } else {
-                    "Document not downloaded"
-                }),
-            ]),
-        ];
-
-        let download_widget = Paragraph::new(download_info)
-            .block(Block::default()
-                .title("Download")
-                .borders(Borders::ALL)
-                .border_style(Styles::active_border()))
-            .wrap(Wrap { trim: true });
-
-        f.render_widget(download_widget, area);
     }
 
     fn draw_bottom_bar(&self, f: &mut Frame, area: Rect) {
         let mode_indicator = match self.mode {
             ViewerMode::Info => "[Info]",
             ViewerMode::Content => "[Content]",
-            ViewerMode::Download => "[Download]",
         };
 
         let instructions = match self.mode {
             ViewerMode::Info => "Tab: Switch mode | ↑/↓: Scroll | Enter: View content",
-            ViewerMode::Content => "Tab: Switch mode | ↑/↓: Sections | PgUp/PgDn: Scroll | r: Reload",
-            ViewerMode::Download => "Tab: Switch mode | Enter/d: Download | s: Save",
+            ViewerMode::Content => {
+                "Tab: Switch mode | ↑/↓: Sections | PgUp/PgDn: Scroll | r: Reload"
+            }
         };
 
         let bottom_text = format!("{} | {} | ESC: Back", mode_indicator, instructions);
@@ -585,20 +533,20 @@ impl ViewerScreen {
 
     fn draw_download_status(&self, f: &mut Frame, area: Rect) {
         use crate::edinet_tui::ui::centered_rect;
-        
+
         let popup_area = centered_rect(50, 20, area);
-        
+
         let default_status = "Downloading...".to_string();
-        let status_text = self.download_status
-            .as_ref()
-            .unwrap_or(&default_status);
-        
+        let status_text = self.download_status.as_ref().unwrap_or(&default_status);
+
         let status_widget = Paragraph::new(format!("{}\n\nPress ESC to cancel", status_text))
             .style(Styles::info())
-            .block(Block::default()
-                .title("Download Status")
-                .borders(Borders::ALL)
-                .border_style(Styles::warning()));
+            .block(
+                Block::default()
+                    .title("Download Status")
+                    .borders(Borders::ALL)
+                    .border_style(Styles::warning()),
+            );
 
         f.render_widget(ratatui::widgets::Clear, popup_area);
         f.render_widget(status_widget, popup_area);
@@ -607,7 +555,9 @@ impl ViewerScreen {
     /// Add download status and file information to the info display
     fn add_download_info(&self, lines: &mut Vec<Line>, document: &Document) {
         // Get the document ID from metadata for precise matching
-        let doc_id = document.metadata.get("doc_id")
+        let doc_id = document
+            .metadata
+            .get("doc_id")
             .or_else(|| document.metadata.get("document_id"))
             .unwrap_or(&document.id);
 
@@ -644,7 +594,7 @@ impl ViewerScreen {
                 Span::styled("Download Status: ", Styles::info()),
                 Span::styled("Downloaded", Styles::success()),
             ]));
-            
+
             if let Some(filename) = file_path.file_name().and_then(|n| n.to_str()) {
                 lines.push(Line::from(vec![
                     Span::styled("File Name: ", Styles::info()),
@@ -689,7 +639,10 @@ impl ViewerScreen {
     }
 
     /// Read ZIP file contents and return list of files with sizes
-    fn read_zip_contents(&self, zip_path: &std::path::Path) -> Result<Vec<(String, u64)>, Box<dyn std::error::Error>> {
+    fn read_zip_contents(
+        &self,
+        zip_path: &std::path::Path,
+    ) -> Result<Vec<(String, u64)>, Box<dyn std::error::Error>> {
         use std::fs::File;
         use zip::ZipArchive;
 
@@ -707,3 +660,4 @@ impl ViewerScreen {
         Ok(contents)
     }
 }
+
