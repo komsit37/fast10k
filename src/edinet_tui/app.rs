@@ -609,8 +609,11 @@ impl App {
                 }
             }
             KeyCode::Down => {
-                // Scroll down in all modes
-                self.viewer.scroll_offset += 1;
+                // Scroll down in all modes with bounds checking
+                let max_scroll = self.calculate_max_scroll_offset();
+                if self.viewer.scroll_offset < max_scroll {
+                    self.viewer.scroll_offset += 1;
+                }
             }
             KeyCode::Left => {
                 // Previous section in Content mode
@@ -643,14 +646,12 @@ impl App {
                 }
             }
             KeyCode::PageDown => {
-                match self.viewer.mode {
-                    super::screens::viewer::ViewerMode::Info | super::screens::viewer::ViewerMode::Download => {
-                        self.viewer.scroll_offset += 10;
-                    }
-                    super::screens::viewer::ViewerMode::Content => {
-                        self.viewer.scroll_offset += 10;
-                    }
-                }
+                // Page down with bounds checking
+                let max_scroll = self.calculate_max_scroll_offset();
+                self.viewer.scroll_offset = std::cmp::min(
+                    self.viewer.scroll_offset + 10, 
+                    max_scroll
+                );
             }
             KeyCode::Home => {
                 self.viewer.scroll_offset = 0;
@@ -924,6 +925,56 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Calculate maximum scroll offset to prevent scrolling past content end
+    fn calculate_max_scroll_offset(&self) -> usize {
+        match self.viewer.mode {
+            super::screens::viewer::ViewerMode::Content => {
+                if let Some(ref sections) = self.viewer.content_sections {
+                    if let Some(current_section) = sections.get(self.viewer.current_section) {
+                        // Calculate total lines: header lines + content lines
+                        let header_lines = 4; // Section, File, Size, blank line
+                        let content_lines = current_section.content.lines().count();
+                        let total_lines = header_lines + content_lines;
+                        
+                        // Estimate available display height (subtract borders and UI elements)
+                        // This is a rough estimate - in practice, the terminal height varies
+                        let available_height = 20; // Conservative estimate for content area
+                        
+                        if total_lines > available_height {
+                            total_lines - available_height
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            }
+            super::screens::viewer::ViewerMode::Info => {
+                // Info mode has a fixed set of lines
+                let info_lines = 15; // Approximate number of info lines
+                let available_height = 20;
+                if info_lines > available_height {
+                    info_lines - available_height
+                } else {
+                    0
+                }
+            }
+            super::screens::viewer::ViewerMode::Download => {
+                // Download mode has a fixed set of lines
+                let download_lines = 12; // Approximate number of download info lines
+                let available_height = 20;
+                if download_lines > available_height {
+                    download_lines - available_height
+                } else {
+                    0
+                }
+            }
+        }
     }
 }
 
