@@ -1,7 +1,7 @@
 //! Main TUI application state and logic
 
 use anyhow::Result;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     backend::Backend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -265,8 +265,10 @@ impl App {
                 ↑/↓ - Scroll content up/down\n\
                 ←/→ - Change document sections\n\
                 Page Up/Down - Large scroll jumps\n\
+                Ctrl+U/D - Page scroll (vim-like)\n\
+                gg - Go to top (vim-like)\n\
+                G - Go to bottom (vim-like)\n\
                 Tab - Switch viewer modes\n\
-                Home/End - Top/Bottom\n\
                 d - Download document\n\
                 r - Reload content\n\
                 Enter - Load/Download content"
@@ -685,8 +687,28 @@ impl App {
                 }
             }
             KeyCode::Char('d') => {
-                // Download document
-                self.download_viewer_document().await?;
+                // Check for Ctrl+D first (vim-like page down)
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    let page_size = self.calculate_page_size();
+                    let max_scroll = self.calculate_max_scroll_offset();
+                    self.viewer.scroll_offset = std::cmp::min(
+                        self.viewer.scroll_offset + page_size,
+                        max_scroll
+                    );
+                    self.set_status("Scroll down one page".to_string());
+                } else {
+                    // Regular 'd' - Download document
+                    self.download_viewer_document().await?;
+                }
+            }
+            KeyCode::Char('u') => {
+                // Check for Ctrl+U (vim-like page up)
+                if key.modifiers.contains(KeyModifiers::CONTROL) {
+                    let page_size = self.calculate_page_size();
+                    self.viewer.scroll_offset = self.viewer.scroll_offset.saturating_sub(page_size);
+                    self.set_status("Scroll up one page".to_string());
+                }
+                // Note: regular 'u' has no function in viewer, so we ignore it
             }
             KeyCode::Char('r') => {
                 // Reload/refresh content
@@ -701,9 +723,37 @@ impl App {
             }
             KeyCode::Esc => {
                 // Viewer screen: ESC goes back to Results
+                // Also clear any pending vim commands
+                self.viewer.pending_g_key = false;
                 self.navigate_to_screen(Screen::Results);
             }
-            _ => {}
+            KeyCode::Char('g') => {
+                // Vim-like "gg" command (go to top of content)
+                if self.viewer.pending_g_key {
+                    // Second 'g' - go to top of current section/content
+                    self.viewer.scroll_offset = 0;
+                    self.viewer.pending_g_key = false;
+                    self.set_status("Top of content".to_string());
+                } else {
+                    // First 'g' - set pending state
+                    self.viewer.pending_g_key = true;
+                    self.set_status("Press 'g' again to go to top".to_string());
+                }
+            }
+            KeyCode::Char('G') => {
+                // Vim-like "G" command (go to bottom of content)
+                self.viewer.pending_g_key = false;
+                let max_scroll = self.calculate_max_scroll_offset();
+                self.viewer.scroll_offset = max_scroll;
+                self.set_status("Bottom of content".to_string());
+            }
+            _ => {
+                // Clear pending vim commands on any other key
+                if self.viewer.pending_g_key {
+                    self.viewer.pending_g_key = false;
+                    self.set_status("Command cancelled".to_string());
+                }
+            }
         }
         Ok(())
     }
@@ -925,6 +975,13 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Calculate page size for scrolling (approximates visible lines)
+    fn calculate_page_size(&self) -> usize {
+        // Conservative estimate for content area height
+        // This should roughly match the available display height in the viewer
+        20 // One full page ≈ 20 lines
     }
 
     /// Calculate maximum scroll offset to prevent scrolling past content end

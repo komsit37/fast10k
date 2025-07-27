@@ -38,6 +38,7 @@ pub struct ViewerScreen {
     pub is_downloading: bool,
     pub download_status: Option<String>,
     pub is_downloaded: bool,
+    pub pending_g_key: bool, // For "gg" command
 }
 
 impl ViewerScreen {
@@ -52,6 +53,7 @@ impl ViewerScreen {
             is_downloading: false,
             download_status: None,
             is_downloaded: false,
+            pending_g_key: false,
         }
     }
 
@@ -413,6 +415,10 @@ impl ViewerScreen {
             }
         }
 
+        // Add download status and file information
+        all_lines.push(Line::from(""));
+        self.add_download_info(&mut all_lines, document);
+
         // Apply scrolling
         let visible_lines: Vec<Line> = all_lines
             .into_iter()
@@ -596,5 +602,108 @@ impl ViewerScreen {
 
         f.render_widget(ratatui::widgets::Clear, popup_area);
         f.render_widget(status_widget, popup_area);
+    }
+
+    /// Add download status and file information to the info display
+    fn add_download_info(&self, lines: &mut Vec<Line>, document: &Document) {
+        // Get the document ID from metadata for precise matching
+        let doc_id = document.metadata.get("doc_id")
+            .or_else(|| document.metadata.get("document_id"))
+            .unwrap_or(&document.id);
+
+        // Check download status and get file path - using default download path
+        // This should ideally use the config, but for now we'll use the default
+        let download_dir = std::path::PathBuf::from("./downloads")
+            .join("edinet")
+            .join(&document.ticker);
+
+        let mut downloaded_file_path = None;
+        let mut zip_contents = Vec::new();
+
+        if let Ok(entries) = std::fs::read_dir(&download_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("zip") {
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        if filename.contains(doc_id) {
+                            downloaded_file_path = Some(path.clone());
+                            // Try to read ZIP contents
+                            if let Ok(contents) = self.read_zip_contents(&path) {
+                                zip_contents = contents;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add download status
+        if let Some(file_path) = downloaded_file_path {
+            lines.push(Line::from(vec![
+                Span::styled("Download Status: ", Styles::info()),
+                Span::styled("Downloaded", Styles::success()),
+            ]));
+            
+            if let Some(filename) = file_path.file_name().and_then(|n| n.to_str()) {
+                lines.push(Line::from(vec![
+                    Span::styled("File Name: ", Styles::info()),
+                    Span::raw(filename.to_string()),
+                ]));
+            }
+
+            if let Ok(metadata) = std::fs::metadata(&file_path) {
+                let file_size = if metadata.len() < 1024 * 1024 {
+                    format!("{:.1} KB", metadata.len() as f64 / 1024.0)
+                } else {
+                    format!("{:.1} MB", metadata.len() as f64 / (1024.0 * 1024.0))
+                };
+                lines.push(Line::from(vec![
+                    Span::styled("File Size: ", Styles::info()),
+                    Span::raw(file_size),
+                ]));
+            }
+
+            // Add ZIP contents if available
+            if !zip_contents.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled("ZIP Contents:", Styles::info())));
+                for (filename, size) in zip_contents {
+                    let size_str = if size < 1024 {
+                        format!("{} B", size)
+                    } else if size < 1024 * 1024 {
+                        format!("{:.1} KB", size as f64 / 1024.0)
+                    } else {
+                        format!("{:.1} MB", size as f64 / (1024.0 * 1024.0))
+                    };
+                    lines.push(Line::from(format!("  {} ({})", filename, size_str)));
+                }
+            }
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Download Status: ", Styles::info()),
+                Span::styled("Not Downloaded", Styles::error()),
+            ]));
+            lines.push(Line::from("  Use 'd' to download or Tab to Download mode"));
+        }
+    }
+
+    /// Read ZIP file contents and return list of files with sizes
+    fn read_zip_contents(&self, zip_path: &std::path::Path) -> Result<Vec<(String, u64)>, Box<dyn std::error::Error>> {
+        use std::fs::File;
+        use zip::ZipArchive;
+
+        let file = File::open(zip_path)?;
+        let mut archive = ZipArchive::new(file)?;
+        let mut contents = Vec::new();
+
+        for i in 0..archive.len() {
+            let file = archive.by_index(i)?;
+            contents.push((file.name().to_string(), file.size()));
+        }
+
+        // Sort by filename for consistent display
+        contents.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(contents)
     }
 }
