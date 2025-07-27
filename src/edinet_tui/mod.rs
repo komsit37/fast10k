@@ -7,6 +7,10 @@ pub mod app;
 pub mod ui;
 pub mod events;
 pub mod screens;
+pub mod traits;
+pub mod handlers;
+pub mod components;
+pub mod operations;
 
 pub use app::App;
 pub use events::AppEvent;

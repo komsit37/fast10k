@@ -27,6 +27,9 @@ use fast10k::{
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
+    /// Run in CLI mode (print output and exit, no interactive TUI)
+    #[arg(long, global = true)]
+    pub cli: bool,
 }
 
 #[derive(Subcommand)]
@@ -72,7 +75,17 @@ async fn main() -> Result<()> {
     let config = Config::from_env()?;
     config.validate()?;
 
-    // Setup terminal
+    // Handle CLI mode - print output and exit without TUI
+    if cli.cli {
+        if let Some(command) = cli.command {
+            return handle_cli_command(command, &config).await;
+        } else {
+            eprintln!("Error: CLI mode requires a command");
+            std::process::exit(1);
+        }
+    }
+
+    // Setup terminal for TUI mode
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -82,7 +95,7 @@ async fn main() -> Result<()> {
     // Create and run the application
     let mut app = App::new(config)?;
     
-    // Handle command line arguments
+    // Handle command line arguments for TUI mode
     if let Some(command) = cli.command {
         handle_startup_command(&mut app, command).await?;
     }
@@ -111,6 +124,69 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Handle CLI mode commands - print output and exit
+async fn handle_cli_command(command: Commands, config: &Config) -> Result<()> {
+    use fast10k::{storage, models::Document};
+    
+    match command {
+        Commands::Search { sym } | Commands::S { sym } => {
+            // Set up the search query
+            let search_query = SearchQuery {
+                ticker: Some(sym.clone()),
+                company_name: None,
+                filing_type: None,
+                source: Some(Source::Edinet),
+                date_from: None,
+                date_to: None,
+                text_query: None,
+            };
+            
+            // Execute the search
+            match storage::search_documents(&search_query, config.database_path_str(), 100).await {
+                Ok(documents) => {
+                    if documents.is_empty() {
+                        println!("No documents found for symbol: {}", sym);
+                    } else {
+                        println!("Found {} documents for symbol: {}", documents.len(), sym);
+                        println!();
+                        println!("{:<12} {:<40} {:<15} {:<12} {:<20}", "Ticker", "Company", "Filing Type", "Date", "Path");
+                        println!("{}", "-".repeat(100));
+                        
+                        for doc in &documents {
+                            let ticker = &doc.ticker;
+                            let company = truncate_string(&doc.company_name, 38);
+                            let filing_type = doc.filing_type.as_str();
+                            let date = doc.date.format("%Y-%m-%d").to_string();
+                            let path = doc.content_path.to_str().unwrap_or("N/A");
+                            
+                            println!("{:<12} {:<40} {:<15} {:<12} {:<20}", 
+                                ticker, company, filing_type, date, path);
+                        }
+                        
+                        println!();
+                        println!("Total: {} documents", documents.len());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Search failed for symbol {}: {}", sym, e);
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+/// Truncate string to specified length with ellipsis
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
 }
 
 /// Handle startup commands from command line arguments

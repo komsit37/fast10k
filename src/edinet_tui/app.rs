@@ -12,7 +12,7 @@ use ratatui::{
 
 use super::screens::*;
 use crate::config::Config;
-use crate::models::{FilingType, SearchQuery, Source};
+use crate::models::{SearchQuery, Source};
 use crate::storage;
 
 /// Application screens

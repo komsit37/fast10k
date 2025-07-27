@@ -27,6 +27,10 @@ pub enum Commands {
         /// Company ticker symbol
         #[arg(long)]
         sym: String,
+        
+        /// Output format: table (human-readable) or tsv (tab-separated)
+        #[arg(long, default_value = "table")]
+        format: String,
     },
     /// Download documents
     Download {
@@ -134,7 +138,7 @@ async fn main() -> Result<()> {
                 }
             }
         },
-        Commands::Search { sym } => {
+        Commands::Search { sym, format } => {
             // Check if index needs updating before searching
             if let Err(e) = check_and_update_index_if_needed(&config).await {
                 error!("Failed to check/update index: {}", e);
@@ -150,17 +154,42 @@ async fn main() -> Result<()> {
                 text_query: None,
             };
             
-            match storage::search_documents(&search_query, config.database_path_str(), 10).await {
+            match storage::search_documents(&search_query, config.database_path_str(), 100).await {
                 Ok(documents) => {
-                    println!("date\tsym\tname\tdocType\tformats");
-                    for doc in documents {
-                        println!("{}\t{}\t{}\t{}\t{}", 
-                            doc.date,
-                            doc.ticker, 
-                            doc.company_name,
-                            doc.filing_type.as_str(),
-                            doc.format.as_str()
-                        );
+                    if documents.is_empty() {
+                        println!("No documents found for symbol: {}", sym);
+                    } else if format == "tsv" {
+                        println!("date\tsym\tname\tdocType\tformats\tpath");
+                        for doc in documents {
+                            println!("{}\t{}\t{}\t{}\t{}\t{}", 
+                                doc.date,
+                                doc.ticker,
+                                doc.company_name,
+                                doc.filing_type.as_str(),
+                                doc.format.as_str(),
+                                doc.content_path.display()
+                            );
+                        }
+                    } else {
+                        // Table format
+                        println!("Found {} documents for symbol: {}", documents.len(), sym);
+                        println!();
+                        println!("{:<12} {:<40} {:<15} {:<12} {:<20}", "Ticker", "Company", "Filing Type", "Date", "Path");
+                        println!("{}", "-".repeat(100));
+                        
+                        for doc in &documents {
+                            let ticker = &doc.ticker;
+                            let company = truncate_string(&doc.company_name, 38);
+                            let filing_type = doc.filing_type.as_str();
+                            let date = doc.date.format("%Y-%m-%d").to_string();
+                            let path = doc.content_path.display().to_string();
+                            
+                            println!("{:<12} {:<40} {:<15} {:<12} {:<20}", 
+                                ticker, company, filing_type, date, path);
+                        }
+                        
+                        println!();
+                        println!("Total: {} documents", documents.len());
                     }
                 }
                 Err(e) => error!("Search failed: {}", e),
@@ -245,6 +274,15 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Truncate string to specified length with ellipsis
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len.saturating_sub(3)])
+    }
 }
 
 async fn check_and_update_index_if_needed(config: &Config) -> Result<()> {
