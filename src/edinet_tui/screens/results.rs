@@ -10,6 +10,7 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
     Frame,
 };
+use unicode_width::{UnicodeWidthStr, UnicodeWidthChar};
 
 use crate::{
     downloader,
@@ -346,8 +347,8 @@ impl ResultsScreen {
             Span::styled("No.  ", Styles::title()),
             Span::styled("│ Date       ", Styles::title()),
             Span::styled("│ Symbol   ", Styles::title()),
-            Span::styled("│ Company                           ", Styles::title()),
-            Span::styled("│ Type        ", Styles::title()),
+            Span::styled("│ Company              ", Styles::title()),  // reduced by 5 chars
+            Span::styled("│ Type                ", Styles::title()),   // increased by 8 chars
             Span::styled("│ Format     ", Styles::title()),
         ]));
 
@@ -362,12 +363,12 @@ impl ResultsScreen {
 
                 let row_number = self.current_page * self.items_per_page + i + 1;
                 let content = format!(
-                    "{:4} │ {} │ {:8} │ {:25} │ {:11} │ {:10}",
+                    "{:4} │ {} │ {} │ {} │ {} │ {}",
                     row_number,
                     doc.date,
                     truncate_string(&doc.ticker, 8),
-                    truncate_string(&doc.company_name, 25),
-                    truncate_string(doc.filing_type.as_str(), 11),
+                    truncate_string(&doc.company_name, 20),
+                    truncate_string(doc.filing_type.as_str(), 19),
                     truncate_string(doc.format.as_str(), 10)
                 );
 
@@ -459,12 +460,32 @@ impl ResultsScreen {
     }
 }
 
-/// Helper function to truncate strings to a specific length
-fn truncate_string(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        format!("{:width$}", s, width = max_len)
+/// Helper function to truncate strings to a specific display width (Unicode-aware)
+fn truncate_string(s: &str, max_width: usize) -> String {
+    let display_width = s.width();
+    if display_width <= max_width {
+        // Pad with spaces to reach exact width
+        let padding = max_width - display_width;
+        format!("{}{}", s, " ".repeat(padding))
     } else {
-        format!("{}…", &s[..max_len.saturating_sub(1)])
+        // Truncate by character until we fit within max_width - 1 (for ellipsis)
+        let target_width = max_width.saturating_sub(1);
+        let mut truncated = String::new();
+        let mut current_width = 0;
+        
+        for ch in s.chars() {
+            let ch_width = ch.width().unwrap_or(0);
+            if current_width + ch_width > target_width {
+                break;
+            }
+            truncated.push(ch);
+            current_width += ch_width;
+        }
+        
+        // Add ellipsis and pad to exact width
+        let ellipsis_width = 1;
+        let padding_needed = max_width - current_width - ellipsis_width;
+        format!("{}…{}", truncated, " ".repeat(padding_needed))
     }
 }
 

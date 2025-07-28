@@ -8,8 +8,8 @@ use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Margin},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Table, Row, Cell},
     Frame, Terminal,
 };
 use std::io;
@@ -257,39 +257,45 @@ fn render_downloads_tab(f: &mut Frame, _app: &App, area: ratatui::layout::Rect) 
 }
 
 fn render_document_list(f: &mut Frame, app: &App, area: ratatui::layout::Rect, title: &str) {
-    let items: Vec<ListItem> = app
+    let header = Row::new(vec![
+        Cell::from("Ticker").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Company").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Type").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Source").style(Style::default().add_modifier(Modifier::BOLD)),
+        Cell::from("Date").style(Style::default().add_modifier(Modifier::BOLD)),
+    ]);
+
+    let rows: Vec<Row> = app
         .documents
         .iter()
-        .map(|doc| {
-            let content = Line::from(vec![
-                Span::styled(
-                    format!("{} ", doc.ticker),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(format!("{} ", doc.company_name)),
-                Span::styled(
-                    format!("({}) ", doc.filing_type.as_str()),
-                    Style::default().fg(Color::Yellow),
-                ),
-                Span::styled(
-                    format!("[{}] ", doc.source.as_str()),
-                    Style::default().fg(Color::Green),
-                ),
-                Span::raw(doc.date.to_string()),
-            ]);
-            ListItem::new(content)
+        .enumerate()
+        .map(|(i, doc)| {
+            let style = if Some(i) == app.list_state.selected() {
+                Style::default().bg(Color::LightBlue).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            
+            Row::new(vec![
+                Cell::from(doc.ticker.clone()).style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Cell::from(doc.company_name.clone()),
+                Cell::from(doc.filing_type.as_str()).style(Style::default().fg(Color::Yellow)),
+                Cell::from(doc.source.as_str()).style(Style::default().fg(Color::Green)),
+                Cell::from(doc.date.to_string()),
+            ]).style(style)
         })
         .collect();
-    
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title))
-        .highlight_style(
-            Style::default()
-                .bg(Color::LightBlue)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
-    
-    let mut list_state = app.list_state.clone();
-    f.render_stateful_widget(list, area, &mut list_state);
+
+    let table = Table::new(rows, [
+        Constraint::Length(8),   // Ticker
+        Constraint::Length(25),  // Company (reduced by 5 from typical 30)
+        Constraint::Length(18),  // Type (increased by 8 from typical 10)
+        Constraint::Length(8),   // Source
+        Constraint::Length(12),  // Date
+    ])
+    .header(header)
+    .block(Block::default().borders(Borders::ALL).title(title))
+    .column_spacing(1);
+
+    f.render_widget(table, area);
 }

@@ -31,8 +31,8 @@ impl Default for DocumentTableConfig {
             show_borders: true,
             show_header: true,
             max_ticker_len: 8,
-            max_company_len: 20,
-            max_type_len: 8,
+            max_company_len: 15,  // reduced by 5 chars (from 20 to 15)
+            max_type_len: 16,     // increased by 8 chars (from 8 to 16)
         }
     }
 }

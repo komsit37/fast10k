@@ -62,6 +62,7 @@ thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 futures = "0.3"
 walkdir = "2.0"
+unicode-width = "0.1"
 
 # ZIP processing
 zip = "0.6"
